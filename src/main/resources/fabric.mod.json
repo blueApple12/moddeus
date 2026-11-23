@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "moddeus",
+	"version": "${version}",
+	"name": "Moddeus",
+	"description": "Claude Code, live inside your world.",
+	"authors": [
+		"you + Claude"
+	],
+	"license": "MIT",
+	"icon": "assets/moddeus/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.moddeus.Moddeus"
+		],
+		"client": [
+			"dev.moddeus.client.ModdeusClient"
+		]
+	},
+	"mixins": [
+		"moddeus.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

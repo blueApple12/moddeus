@@ -1,0 +1,11 @@
+{
+  "size": 1.4,
+  "mass": 10,
+  "bounce": 0.15,
+  "friction": 0.5,
+  "impact_damage": 6,
+  "impact_knockback": 1.2,
+  "impact_speed": 0.3,
+  "impact_sound": "minecraft:block.stone.break",
+  "hit_force": 0.3
+}

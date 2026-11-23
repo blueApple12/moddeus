@@ -1,0 +1,9 @@
+{
+  "size": 0.5,
+  "mass": 0.6,
+  "bounce": 0.5,
+  "break_speed": 0.9,
+  "glow": true,
+  "translucent": true,
+  "impact_sound": "minecraft:block.glass.break"
+}

@@ -1,0 +1,9 @@
+{
+  "size": 0.8,
+  "mass": 0.2,
+  "gravity": -0.004,
+  "drag": 0.96,
+  "bounce": 0.6,
+  "hit_force": 1.5,
+  "lifetime": 1200
+}

@@ -1,0 +1,545 @@
+[
+ {
+  "name": "add-dir",
+  "description": "Add a working directory for file access. Type a partial path to see matching directory suggestions; press Tab to accept one. Most .claude/ configuration isn't discovered from the added directory. You can't add most netwo",
+  "args": "<path>"
+ },
+ {
+  "name": "agents",
+  "description": "Print a reminder to ask Claude to create or manage subagents, or to edit .claude/agents/ or ~/.claude/agents/ directly. On v2.1.197 and earlier, opens an interactive interface for creating and managing subagent configura",
+  "interactive": true
+ },
+ {
+  "name": "artifact-capabilities",
+  "description": "Skill. Load the reference for the runtime capabilities a published artifact can use, such as calling your connectors or offering a file download, including which ones your account has. Claude normally loads it on its own"
+ },
+ {
+  "name": "artifact-diagramming",
+  "description": "Skill. Load diagramming guidance for Claude to follow in artifacts: when a diagram helps, what to draw, and how to write inline SVG that stays legible in light and dark themes. Requires Claude Code v2.1.221 or later"
+ },
+ {
+  "name": "artifacts",
+  "description": "List the artifacts you own or that are shared with you, then attach one to the session, open it in your browser, or copy its link. Available where artifacts are"
+ },
+ {
+  "name": "auto-mode-setup",
+  "description": "Draft autoMode.environment entries from your project and recent sessions, then review the draft and save it to your user settings. On a Pro, Max, Ultra, or Team plan, requires Claude Code v2.1.228 or later, or v2.1.233 o"
+ },
+ {
+  "name": "autofix-pr",
+  "description": "Spawn a cloud session that watches the current branch's PR and pushes fixes when CI fails or reviewers leave comments. Detects the open PR from your checked-out branch with gh pr view; to watch a different PR, check out ",
+  "args": "[prompt]"
+ },
+ {
+  "name": "background",
+  "description": "Detach the current session to run as a background agent and free this terminal. Pass a prompt to send one more instruction before detaching. Monitor the session with claude agents. To copy the conversation into a new bac",
+  "args": "[prompt]"
+ },
+ {
+  "name": "batch",
+  "description": "Skill. Orchestrate large-scale changes across a codebase in parallel. Researches the codebase, decomposes the work into 5 to 30 independent units, and presents a plan. Once approved, spawns one background subagent per un",
+  "args": "<instruction>"
+ },
+ {
+  "name": "branch",
+  "description": "Create a branch of the current conversation at this point, so you can try a different direction without losing the conversation as it stands. Switches you into the branch and preserves the original, which you can return ",
+  "args": "[name]"
+ },
+ {
+  "name": "btw",
+  "description": "Ask a side question about the current session without adding to the conversation. If you run /btw without a question, Claude Code shows your most recent side question so you can browse earlier answers; if you haven't ask",
+  "args": "[question]"
+ },
+ {
+  "name": "bug",
+  "description": "Report a bug or share your conversation. You choose how much session history to include and confirm on a consent screen before anything is sent. When you're signed in to Anthropic on a first-party connection, the report ",
+  "args": "[report]",
+  "interactive": true
+ },
+ {
+  "name": "cd",
+  "description": "Move this session to a new working directory, keeping the conversation. Type a partial path to see matching directory suggestions; press Tab to accept one. For what Claude Code applies from the new directory as soon as y",
+  "args": "<path>"
+ },
+ {
+  "name": "chrome",
+  "description": "Configure Claude in Chrome settings",
+  "interactive": true
+ },
+ {
+  "name": "claude-in-chrome",
+  "description": "Skill. Have Claude carry out a task in your browser, such as testing a page, filling a form, or reading console logs, through Claude in Chrome. Available when Chrome integration is enabled for the session, for example wi",
+  "args": "[task]"
+ },
+ {
+  "name": "clear",
+  "description": "Start a new conversation with empty context. Pass a name to label the previous conversation in the /resume picker. To free up context while continuing the same conversation, use /compact instead. Resume the previous conv",
+  "args": "[name]"
+ },
+ {
+  "name": "compact",
+  "description": "Free up context by summarizing the conversation so far. Optionally pass focus instructions for the summary. See how compaction handles rules, skills, and memory files",
+  "args": "[instructions]"
+ },
+ {
+  "name": "config",
+  "description": "Open the Settings interface to adjust preferences. Pass key=value pairs to set a setting directly, for example /config verbose=true, /config theme=dark, or /config model=sonnet. That form also works in non-interactive mo",
+  "args": "[key=value ...]",
+  "interactive": true
+ },
+ {
+  "name": "context",
+  "description": "Visualize current context usage as a colored grid. Shows optimization suggestions for context-heavy tools, memory bloat, and capacity warnings. When the conversation exceeds the context window, the output includes a warn",
+  "args": "[all]",
+  "interactive": true
+ },
+ {
+  "name": "copy",
+  "description": "Copy the last assistant response to clipboard. Pass a number N to copy the Nth-latest response: /copy 2 copies the second-to-last. When code blocks or blockquotes are present, shows an interactive picker to select indivi",
+  "args": "[N]",
+  "interactive": true
+ },
+ {
+  "name": "cost",
+  "description": "Alias for /usage",
+  "interactive": true
+ },
+ {
+  "name": "dataviz",
+  "description": "Skill. Design guidance for charts, graphs, and dashboards. Claude picks the chart form for the data, assigns color by role, validates the palette for colorblind safety and contrast with a bundled script, and applies mark",
+  "args": "[request]"
+ },
+ {
+  "name": "debug",
+  "description": "Skill. Enable debug logging for the current session and troubleshoot issues by reading the session debug log. Debug logging is off by default unless you started with claude --debug, so running /debug mid-session starts c",
+  "args": "[description]"
+ },
+ {
+  "name": "deep-research",
+  "description": "Workflow. Fan out web searches on a question, fetch and cross-check sources, and synthesize a cited report",
+  "args": "<question>"
+ },
+ {
+  "name": "design",
+  "description": "Skill. Draft UI mockups, screen flows, landing pages, or posters as artboards on one canvas, published as a Claude Design artifact, for example /design a settings screen for a mobile banking app. You edit the artboards i",
+  "args": "[brief]"
+ },
+ {
+  "name": "design-login",
+  "description": "Authorize design-system access for /design-sync with your claude.ai account. Sign in with /design-login whenever /design-sync or /design consent tells you to. This sign-in is for the standalone Claude Design site at clau"
+ },
+ {
+  "name": "design-sync",
+  "description": "Skill. Convert your repo's React design system and upload it to Claude Design, so designs it produces use your real components. Optionally name the design system, for example /design-sync Acme DS. A first-time sync verif",
+  "args": "[hint]"
+ },
+ {
+  "name": "desktop",
+  "description": "Continue the current session in the Claude Code Desktop app. Requires macOS or x64 Windows and a Claude subscription. Alias: /app",
+  "interactive": true
+ },
+ {
+  "name": "diff",
+  "description": "Review the changes in your working tree, including the edits Claude has made so far. See Review changes with /diff",
+  "interactive": true
+ },
+ {
+  "name": "doctor",
+  "description": "Skill. Run a setup checkup that diagnoses installation, settings, extension, and CLAUDE.md problems and proposes fixes that Claude applies after you confirm. For what the checkup covers, or to audit your instructions wit",
+  "args": "[prompt-audit [path]]",
+  "interactive": true
+ },
+ {
+  "name": "effort",
+  "args": "[low|medium|high|xhigh|max|ultracode]",
+  "description": "Set the effort level, or toggle ultracode",
+  "interactive": true
+ },
+ {
+  "name": "exit",
+  "description": "Exit the CLI. In an attached background session, this detaches and the session keeps running. Alias: /quit"
+ },
+ {
+  "name": "export",
+  "description": "Export the current conversation as plain text. With a filename, writes directly to that file. Without, opens a dialog to copy to clipboard or save to a file",
+  "args": "[filename]",
+  "interactive": true
+ },
+ {
+  "name": "fast",
+  "description": "Toggle fast mode"
+ },
+ {
+  "name": "feedback",
+  "description": "Send product feedback about Claude Code. Opens the same dialog as /bug, with the same consent step, sending rules, and mid-turn behavior. In sessions with Claude-drafted feedback, /feedback with no argument opens the dra",
+  "args": "[report]",
+  "interactive": true
+ },
+ {
+  "name": "fewer-permission-prompts",
+  "description": "Skill. Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts"
+ },
+ {
+  "name": "focus",
+  "description": "Toggle the focus view, which shows only your last prompt, a one-line tool-call summary with edit diffstats, and the final response. The tool-call summary also counts the subagents launched in the turn and collapses compl",
+  "interactive": true
+ },
+ {
+  "name": "fork",
+  "description": "Copy the current conversation into a new background session and keep working here. Pass a prompt and the copy starts working on it immediately; without one it waits in agent view for its first prompt. Except when the cop",
+  "args": "[prompt]"
+ },
+ {
+  "name": "heapdump",
+  "description": "Write a JavaScript heap snapshot and a memory breakdown to ~/Desktop, or your home directory on Linux without a Desktop folder, for diagnosing high memory usage. Attach only the -diagnostics.json file when reporting a me",
+  "interactive": true
+ },
+ {
+  "name": "help",
+  "description": "Show help and available commands",
+  "interactive": true
+ },
+ {
+  "name": "hooks",
+  "description": "View hook configurations",
+  "interactive": true
+ },
+ {
+  "name": "ide",
+  "description": "Manage IDE integrations and show status",
+  "interactive": true
+ },
+ {
+  "name": "init",
+  "description": "Initialize project with a CLAUDE.md guide. Set CLAUDE_CODE_NEW_INIT=1 for an interactive flow that also walks through skills, hooks, and personal memory files. If /init finds OpenAI Codex or Google Gemini CLI configurati"
+ },
+ {
+  "name": "insights",
+  "description": "Generate an HTML report analyzing your recent sessions on this machine: which projects you work in, how you use Claude Code, where things go wrong, and features to try. Not available in cloud sessions. See Analyze your u",
+  "interactive": true
+ },
+ {
+  "name": "install-github-app",
+  "description": "Install the Claude GitHub App for a repository, with an optional step to set up GitHub Actions workflows and secrets. Walks you through selecting a repo and configuring the integration. Works only with github.com reposit",
+  "interactive": true
+ },
+ {
+  "name": "install-slack-app",
+  "description": "Install the Claude Slack app. Opens a browser to complete the OAuth flow",
+  "interactive": true
+ },
+ {
+  "name": "keybindings",
+  "description": "Open your keyboard shortcuts file",
+  "interactive": true
+ },
+ {
+  "name": "list-agents",
+  "description": "List the subagents, agent team teammates, and other Claude Code sessions Claude can message, with the name to use for each. See cross-session messaging. Also available as /peers. Teammate rows and the first line showing ",
+  "interactive": true
+ },
+ {
+  "name": "login",
+  "description": "Sign in to your Anthropic account",
+  "interactive": true
+ },
+ {
+  "name": "logout",
+  "description": "Sign out from your Anthropic account",
+  "interactive": true
+ },
+ {
+  "name": "loop",
+  "description": "Skill. Run a prompt repeatedly while the session stays open. Omit the interval and Claude self-paces between iterations. Omit the prompt and Claude runs the built-in maintenance prompt or your loop.md. Example: /loop 5m ",
+  "args": "[interval] [prompt]"
+ },
+ {
+  "name": "mcp",
+  "description": "Manage MCP servers: connect, authenticate, see tools",
+  "interactive": true
+ },
+ {
+  "name": "memory",
+  "description": "Edit CLAUDE.md files, enable or disable auto memory, and view auto memory entries",
+  "interactive": true
+ },
+ {
+  "name": "mobile",
+  "description": "Show QR code to download the Claude mobile app. Aliases: /ios, /android",
+  "interactive": true
+ },
+ {
+  "name": "model",
+  "description": "Switch the AI model and save it as your default for new sessions. For models that support it, use left/right arrows to adjust effort level. With no argument, opens a picker; press s on a row to switch for the current ses",
+  "args": "[model]",
+  "interactive": true
+ },
+ {
+  "name": "output-style",
+  "description": "List output styles or switch to one, for example /output-style concise. See Change your output style. Requires Claude Code v2.1.269 or later",
+  "args": "[style]",
+  "interactive": true
+ },
+ {
+  "name": "passes",
+  "description": "Share a free week of Claude Code with friends. Only visible if your account is eligible",
+  "interactive": true
+ },
+ {
+  "name": "permissions",
+  "description": "Manage allow, ask, and deny rules for tool permissions. Opens an interactive dialog where you can view rules by scope, add or remove rules, manage working directories, and review recent auto mode denials. You can also vi",
+  "interactive": true
+ },
+ {
+  "name": "plan",
+  "description": "Enter plan mode directly from the prompt. Pass an optional description to enter plan mode and immediately start with that task, for example /plan fix the auth bug",
+  "args": "[description]"
+ },
+ {
+  "name": "plugin",
+  "description": "Manage Claude Code plugins. Run with no argument to open the plugin menu, or pass a subcommand such as list, install, enable, or disable to act directly. Claude Code can activate a plugin during the install; the install ",
+  "args": "[subcommand]",
+  "interactive": true
+ },
+ {
+  "name": "plugin-authoring",
+  "description": "Load the reference Claude works from to write a mod. Claude can load it on its own when you ask for a mod. This is a skill from a built-in plugin, which you can turn off in /plugin. Requires Claude Code v2.1.287 or later"
+ },
+ {
+  "name": "powerup",
+  "description": "Discover Claude Code features through quick interactive lessons with animated demos",
+  "interactive": true
+ },
+ {
+  "name": "pr-comments",
+  "description": "Removed in v2.1.91. Ask Claude directly to view pull request comments instead. On earlier versions, fetches and displays comments from a GitHub pull request; automatically detects the PR for the current branch, or pass a",
+  "args": "[PR]"
+ },
+ {
+  "name": "privacy-settings",
+  "description": "View and update your privacy settings. Only available for Pro, Max, and Ultra plan subscribers",
+  "interactive": true
+ },
+ {
+  "name": "radio",
+  "description": "Open Claude FM lo-fi radio in your browser. Prints the stream URL when no browser is available",
+  "interactive": true
+ },
+ {
+  "name": "rate-limit-options",
+  "description": "Show ways to keep working when a claude.ai usage limit blocks a request: wait and continue automatically when the limit resets, add usage credits, or upgrade your plan. Claude Code can also open this menu on its own when",
+  "interactive": true
+ },
+ {
+  "name": "recap",
+  "description": "Generate a one-line summary of the current session on demand. See Session recap for the automatic recap that appears after you've been away",
+  "interactive": true
+ },
+ {
+  "name": "release-notes",
+  "description": "View the changelog in an interactive version picker. Select a specific version to see its release notes, or choose to show all versions. The notes appear in your transcript without entering the conversation Claude sees",
+  "interactive": true
+ },
+ {
+  "name": "reload-plugins",
+  "description": "Reload all active plugins to apply pending changes without restarting. Reports counts for each reloaded component and flags any load errors. When the reload would change which MCP tools are loaded and invalidate the prom",
+  "args": "[--force]"
+ },
+ {
+  "name": "reload-skills",
+  "description": "Re-scan skill and command directories so skills added or changed on disk during the session become available without restarting. Reports how many skills are available and how many were added or removed"
+ },
+ {
+  "name": "remote-control",
+  "description": "Make this session available for Remote Control from claude.ai. Running it while signed out prints that Remote Control requires a claude.ai subscription and tells you how to sign in. Alias: /rc",
+  "interactive": true
+ },
+ {
+  "name": "remote-env",
+  "description": "Choose the default cloud environment for cloud sessions you start from the CLI",
+  "interactive": true
+ },
+ {
+  "name": "rename",
+  "description": "Rename the current session and show the name on the prompt bar. Without a name, auto-generates one from conversation history. Also available in non-interactive mode (-p). From every rename surface, including claude.ai an",
+  "args": "[name]"
+ },
+ {
+  "name": "restart",
+  "description": "Restart Claude Code and resume this session, which applies an installed update. Run it when the footer offers it after an update installs. Requires a Pro, Max, or Ultra plan and a native install on macOS or Linux, not WS"
+ },
+ {
+  "name": "resume",
+  "description": "Resume a conversation by ID or name, or open the session picker. Background sessions appear in the picker marked with bg. Resuming one that is still running, from the picker or by ID or name, opens that session: your cur",
+  "args": "[session]",
+  "interactive": true
+ },
+ {
+  "name": "review",
+  "description": "Review a pull request or your changes"
+ },
+ {
+  "name": "rewind",
+  "description": "Rewind the conversation and/or code to a previous point, or summarize from a selected message. See checkpointing. Aliases: /checkpoint, /undo",
+  "interactive": true
+ },
+ {
+  "name": "run",
+  "description": "Skill. Launch and drive your project's app to see a change working, not only passing tests. See Run and verify your app"
+ },
+ {
+  "name": "run-skill-generator",
+  "description": "Skill. Teach /run and /verify how to build, launch, and drive your project's app from a clean environment by writing a per-project skill"
+ },
+ {
+  "name": "sandbox",
+  "description": "Toggle sandbox mode. Available on supported platforms only",
+  "interactive": true
+ },
+ {
+  "name": "schedule",
+  "description": "Create, update, list, or run cloud scheduled tasks, formerly routines. Claude walks you through the setup conversationally. You can also ask about a scheduled task's recent runs. Alias: /routines",
+  "args": "[description]"
+ },
+ {
+  "name": "scroll-speed",
+  "description": "Adjust mouse wheel scroll speed interactively. Available in fullscreen rendering only and not in the JetBrains IDE terminal",
+  "interactive": true
+ },
+ {
+  "name": "security-review",
+  "description": "Analyze the changes on your current branch for security vulnerabilities. Reviews the diff between your branch and origin's default branch, identifying risks like injection, auth issues, and data exposure. Needs an origin"
+ },
+ {
+  "name": "setup-bedrock",
+  "description": "Configure Amazon Bedrock authentication, region, and model pins through an interactive wizard. Hidden from the command menu until CLAUDE_CODE_USE_BEDROCK=1 is set; type it in full. First-time Amazon Bedrock users can als"
+ },
+ {
+  "name": "setup-vertex",
+  "description": "Configure Google Cloud's Agent Platform authentication, project, region, and model pins through an interactive wizard. Hidden from the command menu until CLAUDE_CODE_USE_VERTEX=1 is set; type it in full. First-time Googl"
+ },
+ {
+  "name": "simplify",
+  "description": "Skill. Review the changed code for cleanup opportunities and apply the fixes. Four review agents run in parallel, covering reuse of existing helpers, simplification, efficiency, and whether the change is at the right lev",
+  "args": "[target]"
+ },
+ {
+  "name": "skill-doctor",
+  "description": "Show what each of your skills costs in context and how often it gets used, so you can find skills to turn off. Requires Claude Code v2.1.252 or later and feature-flag fetching"
+ },
+ {
+  "name": "skills",
+  "description": "List available skills. Type to filter the list by name, description, or source. Press t to sort by token count, Space or Enter to cycle a skill's visibility to Claude and the / menu, and Esc to save and close. You can't ",
+  "interactive": true
+ },
+ {
+  "name": "slides",
+  "description": "Skill. Make a new presentation as a Claude Slides artifact filled from your brief, for example /slides a quarterly review of the platform team. Requires Claude Code v2.1.265 or later, a session where artifacts are availa",
+  "args": "[brief]"
+ },
+ {
+  "name": "stats",
+  "description": "Alias for /usage. Opens on the Stats tab",
+  "interactive": true
+ },
+ {
+  "name": "status",
+  "description": "Open the Settings interface on the Status tab, showing version, model, account, and connectivity. A Session kind row reads background job · attached or background job · unattended in a background session, depending on wh",
+  "interactive": true
+ },
+ {
+  "name": "statusline",
+  "description": "Configure Claude Code's status line. Describe what you want, or run without arguments to auto-configure from your shell prompt",
+  "interactive": true
+ },
+ {
+  "name": "stickers",
+  "description": "Check Claude Code sticker availability",
+  "interactive": true
+ },
+ {
+  "name": "stop",
+  "description": "Stop the background session you're attached to, or the one you send it to as a peek reply; the transcript and any worktree are kept. To detach without stopping, use /exit or press ←"
+ },
+ {
+  "name": "subtask",
+  "description": "Spawn a forked subagent: a background subagent that inherits the full conversation and works on the task while you keep working. Its result returns to this conversation when it finishes. To copy the conversation into a s",
+  "args": "<task>"
+ },
+ {
+  "name": "tasks",
+  "description": "View and manage background work in the current session, including subagents that have finished. Also available as /bashes",
+  "interactive": true
+ },
+ {
+  "name": "team-onboarding",
+  "description": "Generate a team onboarding guide from your Claude Code usage history. Claude analyzes your sessions, commands, and MCP server usage from the past 30 days. It produces a markdown guide a teammate can paste as a first mess"
+ },
+ {
+  "name": "teleport",
+  "description": "Pull a cloud session into this terminal. Opens a picker, then loads the conversation. Also available as /tp. Requires a claude.ai subscription",
+  "interactive": true
+ },
+ {
+  "name": "terminal-setup",
+  "description": "Install a Shift+Enter keybinding for newlines in VS Code, Cursor, Devin Desktop, Alacritty, or Zed. In Apple Terminal, turn off the audible bell instead. In iTerm2, turn on clipboard access so that /copy works",
+  "interactive": true
+ },
+ {
+  "name": "theme",
+  "description": "Change the color theme. Includes an auto option that matches your terminal's light or dark background, light and dark variants, colorblind-accessible (daltonized) themes, ANSI themes that use your terminal's color palett",
+  "interactive": true
+ },
+ {
+  "name": "ultraplan",
+  "description": "Removed. Use plan mode instead. Previously sent a planning task to a cloud session for review in your browser",
+  "args": "<prompt>"
+ },
+ {
+  "name": "ultrareview",
+  "description": "Run a deep, multi-agent code review in a cloud sandbox with ultrareview. Pass a PR reference to review that pull request, or a base branch or commit to change the comparison base. The preferred invocation is /code-review",
+  "args": "[PR or branch]"
+ },
+ {
+  "name": "update-config",
+  "description": "Skill. Describe a settings change, such as allowing a command, setting an environment variable, or adding a hook, and Claude edits the matching settings.json file. For options such as theme and model, use /config instead",
+  "args": "[request]"
+ },
+ {
+  "name": "upgrade",
+  "description": "Open the upgrade page in your browser to switch to a higher plan tier. When no browser can open the page, for example over SSH, the command prints the page's URL above its sign-in prompt. Printing the URL requires Claude",
+  "interactive": true
+ },
+ {
+  "name": "usage",
+  "description": "Show session cost, plan usage limits, and activity stats. On a Pro, Max, Ultra, Team, or Enterprise plan, includes a breakdown of what counts against your plan limits. Behind a Claude apps gateway that tracks spend, show",
+  "interactive": true
+ },
+ {
+  "name": "usage-credits",
+  "description": "Configure usage credits, or request them from your admin, when you hit a limit. Opens your usage-credits billing settings in the browser. Team and Enterprise members without billing access instead send a usage-credits re",
+  "interactive": true
+ },
+ {
+  "name": "verify",
+  "description": "Skill. Confirm a code change does what it should by building your project's app, running it, and observing the result, rather than relying on tests or type checks. See Run and verify your app"
+ },
+ {
+  "name": "vim",
+  "description": "Removed in v2.1.92. To toggle between Vim and Normal editing modes, use /config → Editor mode",
+  "interactive": true
+ },
+ {
+  "name": "web-setup",
+  "description": "Connect your GitHub account for cloud sessions using your local gh CLI credentials"
+ },
+ {
+  "name": "workflow-authoring",
+  "description": "Skill. Load the reference for writing dynamic workflow scripts: the script API, resume behavior, quality patterns, and worked examples. Claude normally loads it on its own before writing a script; run it yourself before "
+ },
+ {
+  "name": "workflows",
+  "description": "Open the workflow progress view to watch, pause, resume, or save running and completed workflows",
+  "interactive": true
+ }
+]

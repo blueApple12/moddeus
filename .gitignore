@@ -1,0 +1,15 @@
+.gradle/
+build/
+run/
+.tools/
+*.log
+node_modules/
+.runtime/
+tools/lessons.md
+tools/buddy-mcp.json
+*.bak
+__pycache__/
+.playwright-mcp/
+.claude/settings.local.json
+# throwaway classes written by "mc game eval"
+src/main/java/dev/moddeus/eval/

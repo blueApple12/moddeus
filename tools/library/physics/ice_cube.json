@@ -1,0 +1,9 @@
+{
+  "size": 0.9,
+  "mass": 1,
+  "bounce": 0.2,
+  "friction": 0.985,
+  "drag": 0.995,
+  "impact_sound": "minecraft:block.glass.hit",
+  "translucent": true
+}

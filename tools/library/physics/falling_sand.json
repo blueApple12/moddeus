@@ -1,0 +1,7 @@
+{
+  "size": 1,
+  "bounce": 0,
+  "friction": 0.5,
+  "lands_as": "minecraft:sand",
+  "rest_ticks": 4
+}

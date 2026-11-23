@@ -1,0 +1,9 @@
+{
+  "size": 0.7,
+  "mass": 1,
+  "bounce": 0.4,
+  "explode": 3,
+  "impact_speed": 0.6,
+  "throw_speed": 1.2,
+  "impact_sound": "minecraft:entity.creeper.primed"
+}

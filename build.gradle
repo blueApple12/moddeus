@@ -1,0 +1,100 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+base { archivesName = 'moddeus' }
+
+// Tiny java agent: hands the mod an Instrumentation so it can redefine classes in the running game.
+sourceSets { agent; whitebox }
+
+// WhiteBox stub on the boot class path: lets HotReloader turn enhanced redefinition off for body-only swaps (~1 ms)
+def whiteboxJar = tasks.register('whiteboxJar', Jar) {
+	from sourceSets.whitebox.output
+	archiveFileName = 'whitebox.jar'
+	destinationDirectory = layout.buildDirectory.dir('agent')
+}
+
+def agentJar = tasks.register('agentJar', Jar) {
+	from sourceSets.agent.output
+	archiveFileName = 'moddeus-agent.jar'
+	destinationDirectory = layout.buildDirectory.dir('agent')
+	manifest {
+		attributes(
+			'Premain-Class': 'dev.moddeus.agent.Agent',
+			'Agent-Class': 'dev.moddeus.agent.Agent',
+			'Can-Redefine-Classes': 'true',
+			'Can-Retransform-Classes': 'true'
+		)
+	}
+}
+
+def rescueJar = tasks.register('rescueJar', Jar) {
+	from sourceSets.agent.output
+	archiveFileName = 'moddeus-rescue.jar'
+	destinationDirectory = layout.buildDirectory.dir('agent')
+	manifest {
+		attributes('Agent-Class': 'dev.moddeus.agent.Rescue', 'Can-Redefine-Classes': 'true', 'Can-Retransform-Classes': 'true')
+	}
+}
+
+loom {
+	splitEnvironmentSourceSets()
+	mods {
+		moddeus {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+	runs {
+		client {
+			vmArg '-XX:+AllowEnhancedClassRedefinition'
+			vmArg '-XX:+UnlockDiagnosticVMOptions'
+			vmArg '-XX:+WhiteBoxAPI'
+			vmArg "-Xbootclasspath/a:${file('build/agent/whitebox.jar').absolutePath}"
+			vmArg "-javaagent:${file('build/agent/moddeus-agent.jar').absolutePath}"
+			property 'moddeus.project', projectDir.absolutePath
+			programArgs '--username', 'Player224' // fixed offline name: a random one each launch meant a fresh player (empty inventory)
+		}
+	}
+}
+
+tasks.matching { it.name == 'runClient' }.configureEach { dependsOn agentJar, whiteboxJar }
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// one-file install: Fabric API + a Java compiler (ECJ: mod sources compile in game even on a plain JRE) ship inside the jar
+	include "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	implementation "org.eclipse.jdt:ecj:3.46.100"
+	include "org.eclipse.jdt:ecj:3.46.100"
+}
+
+// Portable mode: the jar carries the player's workspace (tools, skills, docs) and unpacks it to ~/Moddeus on first start
+// (live/Workspace.java). Player-owned files (lessons.md, their mods) are never in it, so updates don't overwrite them.
+def workspaceZip = tasks.register('workspaceZip', Zip) {
+	archiveFileName = 'workspace.zip'
+	destinationDirectory = layout.buildDirectory.dir('workspace')
+	from('tools') { into 'tools'; exclude '**/node_modules/**', 'lessons.md', '**/*.log', '**/*.bak' }
+	from('.claude/skills') { into '.claude/skills' }
+	from('dist/workspace')
+}
+jar { from(workspaceZip) }
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+	filesMatching("fabric.mod.json") { expand "version": version }
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}

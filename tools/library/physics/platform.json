@@ -1,0 +1,9 @@
+{
+  "width": 3,
+  "height": 0.5,
+  "gravity": 0,
+  "pushable": false,
+  "solid": true,
+  "hit_force": 0,
+  "mass": 1000
+}
