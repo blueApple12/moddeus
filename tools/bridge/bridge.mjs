@@ -679,7 +679,8 @@ wss.on('connection', ws => {
 
 server.on('error', e => { if (e.code === 'EADDRINUSE') { log('another bridge already owns port', PORT); process.exit(0); } throw e; });
 server.listen(PORT, '127.0.0.1', () => {
-  fs.writeFileSync(path.join(DIR, 'bridge.json'), JSON.stringify({ port: PORT, token: TOKEN, pid: process.pid }));
+  fs.writeFileSync(path.join(DIR, 'bridge.json'), JSON.stringify({ port: PORT, token: TOKEN, pid: process.pid }), { mode: 0o600 }); // token = code execution: owner-only
+  try { fs.chmodSync(path.join(DIR, 'bridge.json'), 0o600); } catch {}
   if (ttsConf().enabled) ttsDaemon(); // warm: model load ~2 s
   log('bridge up on', PORT, 'claude =', claudeExe);
   scanSkills();

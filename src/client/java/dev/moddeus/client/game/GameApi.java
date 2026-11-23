@@ -81,11 +81,17 @@ public final class GameApi {
 			info.addProperty("port", http.getAddress().getPort());
 			info.addProperty("token", token);
 			Files.writeString(dir.resolve("game.json"), info.toString());
+			ownerOnly(dir.resolve("game.json"));
 			Moddeus.LOG.info("Game API on port {}", http.getAddress().getPort());
 			FastRun.warm();
 		} catch (Throwable t) {
 			Moddeus.LOG.error("Game API failed to start", t);
 		}
+	}
+
+	/** The token lets anyone run code in the game: on Linux/macOS make the file owner-only (Windows profiles are already private). */
+	static void ownerOnly(Path f) {
+		try { Files.setPosixFilePermissions(f, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException | java.io.IOException ignored) {}
 	}
 
 	/** Two game copies running: the one with a world loaded takes over game.json (new server, new token). */

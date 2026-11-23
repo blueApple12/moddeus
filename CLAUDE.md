@@ -122,5 +122,8 @@ Blocks, items, food, textures and sounds (including from web URLs) take **one co
 - VFX render order: `VfxClient.late` submits into the after-terrain phase (like particles), and `CloudOrderMixin` → `client/RenderOrder` runs that phase after clouds. Custom glow geometry submitted the normal way gets painted over by water and clouds behind it (they write no depth). `RenderOrder.afterClouds=false` restores vanilla order.
 - Project skills in `.claude/skills/` (minecraft-modding, resource-pack, datapack, commands, worldgen, testing, imagegen).
 
+## Release (GitHub blueApple12/moddeus)
+- Public repo = branch `public` (fresh history, core only). Update: worktree of `public`, `node tools/release-export.cjs . <worktree>`, check for leftover IP/personal paths, `gradlew build` there, commit, `git push origin public:main`, `gh release create`. Never push `main` (old history has personal paths).
+
 ## Layout
 - `src/main`: common/server code. `src/client`: client-only code. `src/agent`: java agent (Instrumentation).

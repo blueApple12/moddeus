@@ -1,1 +1,8 @@
-{}
+{
+  "thanos_snap": {
+    "sounds": [
+      "moddeus:thanos_snap"
+    ],
+    "subtitle": "subtitles.moddeus.thanos_snap"
+  }
+}
