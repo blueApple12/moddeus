@@ -13,6 +13,7 @@ for(const f of files){if(SKIP(f)){skipped++;continue}const s=path.join(SRC,f);le
   if(f.endsWith('.md'))t=t.split('\n').filter(l=>!/symbiote|venom|carnage|spider-man|thanos/i.test(l)).join('\n');
   t=t.replace(/Infinity Gauntlet/g,'Storm Staff').replace(/InfinityGauntlet/g,'StormStaff').replace(/infinity:gauntlet/g,'storm:staff').replace(/infinity:infinity_gauntlet/g,'storm:storm_staff').replace(/infinity:/g,'storm:');buf=Buffer.from(t)}
  if(f==='src/main/resources/assets/moddeus/lang/en_us.json'){const j=JSON.parse(buf.toString());for(const k of Object.keys(j))if(IP.test(k)||IP.test(j[k]))delete j[k];buf=Buffer.from(JSON.stringify(j,null,2)+'\n')}
+ if(f==='src/main/resources/assets/moddeus/sounds.json'){const j=JSON.parse(buf.toString());for(const k of Object.keys(j))if(IP.test(k)||IP.test(JSON.stringify(j[k])))delete j[k];buf=Buffer.from(JSON.stringify(j,null,2)+'\n')}
  if(f==='src/main/resources/assets/moddeus_keys/lang/en_us.json')buf=Buffer.from('{}\n');
  fs.writeFileSync(d,buf);n++}
 console.log('copied',n,'skipped',skipped);
