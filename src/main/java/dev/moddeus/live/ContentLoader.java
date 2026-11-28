@@ -36,7 +36,10 @@ public final class ContentLoader {
 	public static void loadAll() {
 		// every root of the mod (portable mode adds the workspace's src/main/resources in front): first one wins per id
 		Map<String, Path> byName = new java.util.TreeMap<>();
-		for (Path r : FabricLoader.getInstance().getModContainer(Moddeus.MOD_ID).map(m -> m.getRootPaths()).orElse(List.of())) {
+		// + exported mods (standalone jars carrying moddeus-mod.json) installed next to Moddeus or its runtime
+		List<Path> roots = new ArrayList<>(FabricLoader.getInstance().getModContainer(Moddeus.MOD_ID).map(m -> m.getRootPaths()).orElse(List.of()));
+		for (var m : FabricLoader.getInstance().getAllMods()) if (!m.getMetadata().getId().equals(Moddeus.MOD_ID) && m.findPath("moddeus-mod.json").isPresent()) roots.addAll(m.getRootPaths());
+		for (Path r : roots) {
 			Path d = r.resolve("moddeus/content");
 			if (!Files.isDirectory(d)) continue;
 			try (Stream<Path> fs = Files.list(d)) { fs.filter(f -> f.toString().endsWith(".json")).forEach(f -> byName.putIfAbsent(f.getFileName().toString(), f)); }
@@ -46,6 +49,13 @@ public final class ContentLoader {
 		List<Item> fresh = new ArrayList<>();
 		dev.moddeus.content.Vfx.DEFS.clear(); // re-filled below; deleted vfx disappear
 		dev.moddeus.content.ModTab.tabs().clear(); // item -> creative tab, re-filled below
+		dev.moddeus.content.Gameplay.begin(); // boss/setbonus/drop/npc specs, re-filled below
+		Systems.begin(); // pads/machines/skills/shops/... (tools/systems.mjs)
+		Effects.begin(); // effect/potion/enchant/itemfx specs (live/Effects)
+		WorldFeel.begin(); // ambience/logic/banner/gamerule/command specs (live/WorldFeel)
+		SoundLoops.begin(); // hold_sound / ambient_sound specs (live/SoundLoops)
+		PackNamespaces.refresh(); // new mod namespaces (assets/<ns>, data/<ns>) become visible to the reloads that follow
+		Map<Identifier, Identifier> aliases = namespaces(byName); // per-mod namespaces + old ids (applied after the purge below)
 		try {
 			for (Path p : byName.values()) {
 				String id = p.getFileName().toString().replace(".json", "");
@@ -59,12 +69,14 @@ public final class ContentLoader {
 						case "particle" -> { dev.moddeus.content.Particles.register(id, o); yield null; }
 						case "physics" -> { dev.moddeus.content.Physics.SPECS.put(LiveRegistry.id(id), o); yield null; }
 						case "vfx" -> { dev.moddeus.content.Vfx.DEFS.put(LiveRegistry.id(id), o); yield null; }
-						default -> throw new IllegalArgumentException("unknown type " + o.get("type"));
+						default -> { if (!dev.moddeus.content.Gameplay.load(id, o) && !Effects.load(id, o) && !Systems.load(id, o) && !Food.load(id, o) && !WorldFeel.load(id, o) && !Gear.load(id, o) && !Life.load(id, o)) throw new IllegalArgumentException("unknown type " + o.get("type")); yield null; }
 					};
 					if (o.has("vfx") && o.get("vfx").isJsonObject()) dev.moddeus.content.Vfx.ITEM.put(LiveRegistry.id(id), o.getAsJsonObject("vfx"));
 					else dev.moddeus.content.Vfx.ITEM.remove(LiveRegistry.id(id));
 					if (o.has("throws") && o.get("throws").isJsonObject()) dev.moddeus.content.Physics.THROW.put(LiveRegistry.id(id), o.getAsJsonObject("throws"));
 					else dev.moddeus.content.Physics.THROW.remove(LiveRegistry.id(id));
+					Effects.item(id, o);
+					SoundLoops.item(id, o);
 					if (o.has("tab")) dev.moddeus.content.ModTab.tabs().put(LiveRegistry.id(id), o.get("tab").getAsString());
 					if (isNew && item != null) fresh.add(item);
 				} catch (Exception e) {
@@ -74,12 +86,26 @@ public final class ContentLoader {
 		} catch (Exception e) {
 			Moddeus.LOG.error("Content scan failed", e);
 		}
+		dev.moddeus.content.Gameplay.end();
+		Systems.end();
+		Effects.end();
+		WorldFeel.end();
+		SoundLoops.end();
 		var server = LiveRegistry.server;
-		if (server != null) purgeRemoved(server, byName.keySet());
+		if (server != null) purgeRemoved(server, byName.keySet(), aliases);
+		aliases.forEach(LegacyIds::alias);
 		dev.moddeus.content.ModTab.sync();
 		dev.moddeus.content.ModTab.refresh();
 		if (server != null && !fresh.isEmpty()) {
-			server.getPlayerList().getPlayers().forEach(pl -> fresh.forEach(i -> pl.getInventory().add(new ItemStack(i, i.getDefaultMaxStackSize()))));
+			// one of each NEW item, only if the player has none yet; spawn eggs never (they live in the creative tab).
+			// Was: a full stack of every "fresh" item on every content load -> inventories flooded with eggs.
+			// (no extra lambdas here: same synthetic methods as before, so this core class still hot-swaps)
+			server.getPlayerList().getPlayers().forEach(pl -> fresh.forEach(i -> {
+				if (i instanceof net.minecraft.world.item.SpawnEggItem) return;
+				var inv = pl.getInventory();
+				for (int k = 0; k < inv.getContainerSize(); k++) if (inv.getItem(k).is(i)) return;
+				inv.add(new ItemStack(i));
+			}));
 		}
 	}
 
@@ -88,22 +114,34 @@ public final class ContentLoader {
 	 * loaded chunks (blocks, containers, dropped items), then unregistered from the running
 	 * registries. Sounds whose .ogg is gone are unregistered too.
 	 */
-	private static void purgeRemoved(net.minecraft.server.MinecraftServer server, java.util.Set<String> dir) {
+	private static void purgeRemoved(net.minecraft.server.MinecraftServer server, java.util.Set<String> dir, Map<Identifier, Identifier> aliases) {
 		java.util.Set<Item> items = new java.util.HashSet<>();
 		java.util.Set<Block> blocks = new java.util.HashSet<>();
+		Map<Item, Item> itemTo = new java.util.HashMap<>(); // renamed (alias old -> new): live references are swapped, not wiped
+		Map<Block, Block> blockTo = new java.util.HashMap<>();
+		java.util.Set<String> owned = new java.util.HashSet<>(LiveRegistry.namespaces().values());
+		owned.add(Moddeus.MOD_ID);
 		List<Identifier> itemIds = new ArrayList<>(), blockIds = new ArrayList<>(), soundIds = new ArrayList<>();
 		for (var e : BuiltInRegistries.ITEM.entrySet()) {
 			Identifier id = e.getKey().identifier();
-			if (id.getNamespace().equals(Moddeus.MOD_ID) && !dir.contains(id.getPath() + ".json")
-					&& !dir.contains(id.getPath().replaceFirst("_spawn_egg$", "") + ".json")) { items.add(e.getValue()); itemIds.add(id); }
+			String p = id.getPath(), base = p.replaceFirst("_spawn_egg$", "");
+			if (owned.contains(id.getNamespace()) && !((dir.contains(p + ".json") || dir.contains(base + ".json")) && LiveRegistry.id(p).equals(id))) {
+				items.add(e.getValue()); itemIds.add(id);
+				Identifier to = aliases.get(id);
+				if (to != null) BuiltInRegistries.ITEM.getOptional(to).ifPresent(n -> itemTo.put(e.getValue(), n));
+			}
 		}
 		for (var e : BuiltInRegistries.BLOCK.entrySet()) {
 			Identifier id = e.getKey().identifier();
-			if (id.getNamespace().equals(Moddeus.MOD_ID) && !dir.contains(id.getPath() + ".json")) { blocks.add(e.getValue()); blockIds.add(id); }
+			if (owned.contains(id.getNamespace()) && !(dir.contains(id.getPath() + ".json") && LiveRegistry.id(id.getPath()).equals(id))) {
+				blocks.add(e.getValue()); blockIds.add(id);
+				Identifier to = aliases.get(id);
+				if (to != null) BuiltInRegistries.BLOCK.getOptional(to).ifPresent(n -> blockTo.put(e.getValue(), n));
+			}
 		}
-		var mod = FabricLoader.getInstance().getModContainer(Moddeus.MOD_ID).orElseThrow();
 		for (Identifier id : BuiltInRegistries.SOUND_EVENT.keySet()) {
-			if (id.getNamespace().equals(Moddeus.MOD_ID) && mod.findPath("assets/moddeus/sounds/" + id.getPath() + ".ogg").isEmpty()) soundIds.add(id);
+			String ogg = "assets/" + id.getNamespace() + "/sounds/" + id.getPath() + ".ogg";
+			if (owned.contains(id.getNamespace()) && FabricLoader.getInstance().getAllMods().stream().allMatch(m -> m.findPath(ogg).isEmpty())) soundIds.add(id);
 		}
 		if (items.isEmpty() && blocks.isEmpty() && soundIds.isEmpty()) return;
 
@@ -114,7 +152,7 @@ public final class ContentLoader {
 		for (var player : server.getPlayerList().getPlayers()) {
 			var inv = player.getInventory();
 			for (int i = 0; i < inv.getContainerSize(); i++) {
-				if (items.contains(inv.getItem(i).getItem())) { inv.setItem(i, ItemStack.EMPTY); stacks++; }
+				if (items.contains(inv.getItem(i).getItem())) { inv.setItem(i, swap(inv.getItem(i), itemTo)); stacks++; }
 			}
 		}
 		// every chunk the server holds in memory (not just near players): a removed block left in one breaks the
@@ -126,7 +164,7 @@ public final class ContentLoader {
 					for (var be : chunk.getBlockEntities().values()) {
 						if (be instanceof net.minecraft.world.Container c) {
 							for (int i = 0; i < c.getContainerSize(); i++) {
-								if (items.contains(c.getItem(i).getItem())) { c.setItem(i, ItemStack.EMPTY); stacks++; }
+								if (items.contains(c.getItem(i).getItem())) { c.setItem(i, swap(c.getItem(i), itemTo)); stacks++; }
 							}
 						}
 					}
@@ -136,8 +174,10 @@ public final class ContentLoader {
 						if (sec.hasOnlyAir() || !sec.maybeHas(s -> blocks.contains(s.getBlock()))) continue;
 						int baseY = chunk.getSectionYFromSectionIndex(si) << 4;
 						for (int x = 0; x < 16; x++) for (int y = 0; y < 16; y++) for (int z = 0; z < 16; z++) {
-							if (blocks.contains(sec.getBlockState(x, y, z).getBlock())) {
-								level.setBlock(new net.minecraft.core.BlockPos((cx << 4) + x, baseY + y, (cz << 4) + z), air, 3);
+							var st = sec.getBlockState(x, y, z);
+							if (blocks.contains(st.getBlock())) {
+								Block to = blockTo.get(st.getBlock());
+								level.setBlock(new net.minecraft.core.BlockPos((cx << 4) + x, baseY + y, (cz << 4) + z), to == null ? air : to.withPropertiesOf(st), 3);
 								placed++;
 							}
 						}
@@ -146,7 +186,11 @@ public final class ContentLoader {
 		}
 		for (var level : server.getAllLevels()) {
 			for (var entity : level.getAllEntities()) {
-				if (entity instanceof net.minecraft.world.entity.item.ItemEntity ie && items.contains(ie.getItem().getItem())) { ie.discard(); dropped++; }
+				if (entity instanceof net.minecraft.world.entity.item.ItemEntity ie && items.contains(ie.getItem().getItem())) {
+					ItemStack s = swap(ie.getItem(), itemTo);
+					if (s.isEmpty()) ie.discard(); else ie.setItem(s);
+					dropped++;
+				}
 			}
 		}
 		java.util.Set<Object> gone = new java.util.HashSet<>(items);
@@ -154,18 +198,49 @@ public final class ContentLoader {
 		for (var player : server.getPlayerList().getPlayers()) {
 			var ender = player.getEnderChestInventory();
 			for (int i = 0; i < ender.getContainerSize(); i++) {
-				if (items.contains(ender.getItem(i).getItem())) { ender.setItem(i, ItemStack.EMPTY); stacks++; }
+				if (items.contains(ender.getItem(i).getItem())) { ender.setItem(i, swap(ender.getItem(i), itemTo)); stacks++; }
 			}
 			scrubStats(player.getStats(), gone);
 		}
 		scrubStatTypes(gone);
-		itemIds.forEach(id -> LiveRegistry.unregister(BuiltInRegistries.ITEM, id));
-		blockIds.forEach(id -> LiveRegistry.unregister(BuiltInRegistries.BLOCK, id));
-		soundIds.forEach(id -> LiveRegistry.unregister(BuiltInRegistries.SOUND_EVENT, id));
+		// NEVER unregister live: a copy we missed (another dimension, a chunk being saved, a packet in flight) then crashes the
+		// game ("Unregistered holder ... Block{[unregistered]}" in chunk save, 2026-11-23), and unregistering a block renumbers
+		// every block-state id. Removed entries stay registered but unused (scrubbed above, no content JSON = no tab/recipe)
+		// until the next launch, which simply does not register them. Old saved ids resolve through LegacyIds aliases/air.
 		Moddeus.LOG.info("Removed live: {} items, {} blocks, {} sounds; wiped {} stacks, {} placed, {} dropped",
 			itemIds.size(), blockIds.size(), soundIds.size(), stacks, placed, dropped);
 		server.getPlayerList().getPlayers().forEach(p -> p.sendSystemMessage(net.minecraft.network.chat.Component.literal(
 			"[Moddeus] removed " + (itemIds.size() + blockIds.size()) + " entries live")));
+	}
+
+	/** A stack of a removed item: the renamed item's stack (same count + components), else empty. */
+	static ItemStack swap(ItemStack s, Map<Item, Item> to) {
+		Item n = to.get(s.getItem());
+		return n == null ? ItemStack.EMPTY : s.transmuteCopy(n);
+	}
+
+	/**
+	 * Per-mod namespaces: content JSON "namespace" (mc.mjs writes the mod's snake_case name) puts the entry at
+	 * &lt;ns&gt;:&lt;file name&gt;; LiveRegistry.id(path) resolves it. "aliases" = its old ids (moved content), returned old -&gt; new.
+	 */
+	static Map<Identifier, Identifier> namespaces(Map<String, Path> byName) {
+		Map<String, String> ns = new java.util.concurrent.ConcurrentHashMap<>();
+		Map<Identifier, Identifier> aliases = new java.util.LinkedHashMap<>();
+		for (Path p : byName.values()) {
+			try {
+				JsonObject o = JsonParser.parseString(Files.readString(p)).getAsJsonObject();
+				if (!o.has("namespace")) continue;
+				String id = p.getFileName().toString().replace(".json", ""), n = o.get("namespace").getAsString();
+				ns.put(id, n);
+				if (o.has("aliases")) for (JsonElement a : o.getAsJsonArray("aliases")) {
+					Identifier old = Identifier.parse(a.getAsString()), now = Identifier.fromNamespaceAndPath(n, id);
+					aliases.put(old, now);
+					if ("mob".equals(str(o, "type", ""))) aliases.put(old.withSuffix("_spawn_egg"), now.withSuffix("_spawn_egg"));
+				}
+			} catch (Exception e) { Moddeus.LOG.warn("content namespace {}", p, e); }
+		}
+		LiveRegistry.NS = ns;
+		return aliases;
 	}
 
 	/** Stats (mined/used/picked up...) reference items/blocks; saving them crashes once those are unregistered. */
@@ -214,9 +289,9 @@ public final class ContentLoader {
 
 	private static Item block(String id, JsonObject o) {
 		SoundType base = soundType(str(o, "sound", "stone"));
-		SoundType st = new SoundType(base.getVolume(), base.getPitch(),
+		SoundType st = new SoundType(num(o, "soundVolume", base.getVolume()).floatValue(), num(o, "soundPitch", base.getPitch()).floatValue(),
 			sound(o, "breakSound", base.getBreakSound()), sound(o, "stepSound", base.getStepSound()),
-			sound(o, "placeSound", base.getPlaceSound()), sound(o, "hitSound", base.getHitSound()), base.getFallSound());
+			sound(o, "placeSound", base.getPlaceSound()), sound(o, "hitSound", base.getHitSound()), sound(o, "fallSound", base.getFallSound()));
 		int light = num(o, "light", 0).intValue();
 		BlockBehaviour.Properties props = BlockBehaviour.Properties.of()
 			.mapColor(MapColor.STONE)
@@ -231,7 +306,8 @@ public final class ContentLoader {
 		if (bool(o, "instabreak")) props.instabreak();
 		String shape = str(o, "shape", "cube");
 		if (o.has("cubes")) dev.moddeus.content.ModelBlock.setCubes(LiveRegistry.id(id), o.getAsJsonArray("cubes"));
-		Block block = LiveRegistry.register(BuiltInRegistries.BLOCK, LiveRegistry.id(id), k -> shape(shape, props.setId(k)));
+		{ Item g = Gear.block(id, o, props, shape, itemProps(o)); if (g != null) return g; } // lantern/torch/barrel (live/Gear.java)
+		Block block = LiveRegistry.register(BuiltInRegistries.BLOCK, LiveRegistry.id(id), k -> o.has("xp") ? new net.minecraft.world.level.block.DropExperienceBlock(net.minecraft.util.valueproviders.UniformInt.of(o.getAsJsonArray("xp").get(0).getAsInt(), o.getAsJsonArray("xp").get(1).getAsInt()), props.setId(k)) : shape(shape, props.setId(k)));
 		return LiveRegistry.register(BuiltInRegistries.ITEM, LiveRegistry.id(id), k -> new BlockItem(block,
 			itemProps(o).useBlockDescriptionPrefix().setId(k)));
 	}
@@ -253,6 +329,9 @@ public final class ContentLoader {
 			case "carpet" -> new net.minecraft.world.level.block.CarpetBlock(p);
 			case "glass" -> new net.minecraft.world.level.block.TransparentBlock(p.noOcclusion());
 			case "model" -> new dev.moddeus.content.ModelBlock(p.noOcclusion());
+			case "facing" -> new net.minecraft.world.level.block.GlazedTerracottaBlock(p); // conveyors etc.: FACING = toward the placer
+			case "logic" -> new WorldFeel.LogicBlock(p.noOcclusion()); // redstone gates/sensors/outputs (live/WorldFeel)
+			case "crop" -> new net.minecraft.world.level.block.CropBlock(p.noCollision().noOcclusion().randomTicks().instabreak().sound(SoundType.CROP).pushReaction(net.minecraft.world.level.material.PushReaction.POPPED));
 			default -> new Block(p);
 		};
 	}
@@ -264,6 +343,8 @@ public final class ContentLoader {
 			props.food(new FoodProperties(num(f, "nutrition", 4).intValue(), num(f, "saturation", 0.3).floatValue(), bool(f, "alwaysEat")));
 		}
 		components(props, o);
+		{ Item g = Gear.item(id, o, props); if (g != null) return g; } // armor/tool stats, paxel/hammer, books, worn 3D parts (live/Gear.java)
+		{ Item w = Weapons.item(id, o, props); if (w != null) return w; } // bow crossbow trident mace spear shield arrow throwable gun/wand/staff + "special" (live/Weapons.java)
 		// tools/armor resolve block tags via the bootstrap lookup, which only works while LiveRegistry has the registries thawed
 		return LiveRegistry.register(BuiltInRegistries.ITEM, LiveRegistry.id(id), k -> LiveRegistry.thawed(BuiltInRegistries.BLOCK, () -> { toolAndArmor(props, o); return new Item(props.setId(k)); }));
 	}
@@ -348,7 +429,7 @@ public final class ContentLoader {
 	private static SoundEvent sound(JsonObject o, String key, SoundEvent fallback) {
 		if (!o.has(key)) return fallback;
 		Identifier id = Identifier.parse(str(o, key, ""));
-		if (id.getNamespace().equals(Moddeus.MOD_ID)) {
+		if (!id.getNamespace().equals("minecraft")) { // ours or a mod namespace
 			return LiveRegistry.register(BuiltInRegistries.SOUND_EVENT, id, k -> SoundEvent.createVariableRangeEvent(id));
 		}
 		return BuiltInRegistries.SOUND_EVENT.getOptional(id).orElse(fallback);
@@ -366,7 +447,10 @@ public final class ContentLoader {
 			case "snow" -> SoundType.SNOW;
 			case "slime" -> SoundType.SLIME_BLOCK;
 			case "amethyst" -> SoundType.AMETHYST;
-			default -> SoundType.STONE;
+			default -> { // any vanilla SoundType by name: deepslate, copper, sculk, nether_bricks, honey_block, chain, mud, moss...
+				try { yield (SoundType) SoundType.class.getField(name.toUpperCase(java.util.Locale.ROOT)).get(null); }
+				catch (ReflectiveOperationException | RuntimeException e) { yield SoundType.STONE; }
+			}
 		};
 	}
 

@@ -81,6 +81,7 @@ public final class Quick {
 	/** Plays a cutscene defined with Cutscene.define(name, ...) (client code); callable from server code in singleplayer. */
 	/** A key bind for a mod (own section in Controls, rebindable): runs onPress on the server thread as the player. See client/Keys. */
 	public static void key(String mod, String label, String key, java.util.function.Consumer<net.minecraft.server.level.ServerPlayer> onPress) {
+		if (net.fabricmc.loader.api.FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.SERVER) return; // keys are client-side
 		try { Class.forName("dev.moddeus.client.Keys").getMethod("bind", String.class, String.class, String.class, java.util.function.Consumer.class).invoke(null, mod, label, key, onPress); }
 		catch (Throwable t) { dev.moddeus.Moddeus.LOG.warn("key bind {}: {}", label, t.toString()); }
 	}
@@ -92,17 +93,26 @@ public final class Quick {
 	}
 
 	public static boolean cutscene(String name) {
+		if (Stage.quiet()) { Stage.note(null, "cutscene " + name + " (skipped: stage)"); return false; } // a stage test never plays on the player's camera
 		try { return (Boolean) Class.forName("dev.moddeus.client.Cutscene").getMethod("play", String.class).invoke(null, name); }
 		catch (Throwable t) { return false; }
 	}
 
 	public static ServerPlayer me() {
+		if (Stage.acting != null) return Stage.acting; // a stage actor is acting: abilities target it, not the real player
 		MinecraftServer s = LiveRegistry.server;
 		return s == null || s.getPlayerList().getPlayers().isEmpty() ? null : s.getPlayerList().getPlayers().get(0);
 	}
 
 
+	/** Spawns an npc or boss made with mc npc / mc boss 3 blocks in front of the player. */
+	public static Entity spawn(String id) { ServerPlayer p = me(); return dev.moddeus.content.Gameplay.spawn(id, p.position().add(p.getLookAngle().multiply(3, 0, 3))); }
+
 	public static ServerLevel world() { ServerPlayer p = me(); return p == null ? null : (ServerLevel) p.level(); }
+
+	/** Live dimensions (live/Dimensions): visit("ns:id") = go there (safe ground near 0,0), back() = exactly where you were. */
+	public static void visit(String dimension) { Dimensions.go(me(), dimension); }
+	public static void back() { Dimensions.back(me()); }
 
 	/** Runs a vanilla command (no slash) as the player, with op rights. Returns its feedback. */
 	public static String cmd(String command) {
@@ -154,9 +164,9 @@ public final class Quick {
 	static java.util.Map<String, Object[]> tasks() { if (tasks == null) tasks = new java.util.LinkedHashMap<>(); return tasks; }
 
 	public static void every(String name, Runnable r) { every(name, 1, r); }
-	public static void every(String name, int ticks, Runnable r) { tasks().put(name, new Object[] { r, Math.max(1, ticks), 0, -1 }); }
+	public static void every(String name, int ticks, Runnable r) { tasks().put(name, new Object[] { Stage.wrap(r), Math.max(1, ticks), 0, -1 }); }
 	/** Runs once after the delay (20 ticks = 1 s). */
-	public static void after(int ticks, Runnable r) { tasks().put("after#" + System.nanoTime(), new Object[] { r, Math.max(1, ticks), 0, 1 }); }
+	public static void after(int ticks, Runnable r) { tasks().put("after#" + System.nanoTime(), new Object[] { Stage.wrap(r), Math.max(1, ticks), 0, 1 }); }
 	public static void stop(String name) { tasks().remove(name); clientTasks().remove(name); }
 	public static void stopAll() { tasks().clear(); clientTasks().clear(); }
 	public static java.util.Set<String> running() { var s = new java.util.LinkedHashSet<>(tasks().keySet()); s.addAll(clientTasks().keySet()); return s; }

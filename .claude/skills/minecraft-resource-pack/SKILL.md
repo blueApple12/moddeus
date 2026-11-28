@@ -7,7 +7,7 @@ description: "Create and debug Minecraft 26.x and 1.21.x resource packs, includi
 
 ## Moddeus live workflow (read first)
 - A datapack mod's resource pack: `run/resourcepacks/<ModId>-RP`, format `[97, 1]` (26.3). The G screen On/Off selects/unselects it; Delete removes it. Make sure it is selected (options.txt resourcePacks has "file/<ModId>-RP"; turning the mod On selects it).
-- Java mods do NOT use a resource pack: their assets go in `src/main/resources/assets/moddeus` (hot reloads in ~0.1-1 s, see skill mc-content).
+- Java mods do NOT use a resource pack: their assets go in `src/main/resources/assets/<ns>` (the mod's own namespace, mc-content NAMESPACES.md; hot reloads in ~0.1-1 s).
 - Edits to `<ModId>-RP` files apply by themselves in ~20-100 ms (HotReloader light reload, no loading screen). Never call reloadResourcePacks / F3+T (seconds of freeze). Check with `game shot`.
 
 ## What Is a Resource Pack?

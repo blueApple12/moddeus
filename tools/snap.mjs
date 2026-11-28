@@ -91,10 +91,23 @@ export function redo() {
   return { label: gs(['log', '-1', '--format=%s', c]), files };
 }
 
+/** "Id|snake_ns" of the mod whose chat runs this (bridge env MODDEUS_PROJECT), or null. */
+function projectFilter() {
+  const id = process.env.MODDEUS_PROJECT;
+  if (!id) return null;
+  let name = id;
+  try { const p = JSON.parse(fs.readFileSync(path.join(ROOT, 'run/moddeus/projects.json'), 'utf8')).find(x => x.id === id); if (p) name = p.name; } catch {}
+  const ns = String(name).trim().replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  console.log('undo limited to mod ' + name + ' (other chats\' changes stay; --any = newest change of anyone)');
+  return id + '|' + ns;
+}
+
 export async function run(cmd, args, root) {
   ROOT = root; STATE = path.join(ROOT, 'run/moddeus/undo.json');
   if (cmd === 'snap') { const c = snap(args.join(' ') || 'manual'); console.log(c ? 'snapshot ' + c.slice(0, 8) : 'no changes'); return; }
   if (cmd === 'snaps') { console.log(tryGs(['log', '-' + (Number(args[0]) || 15), '--format=%h %cr  %s', REF]) || 'no snapshots'); return; }
-  const r = cmd === 'redo' ? redo() : undo(args.join(' ').trim() || null);
+  // several chats share one history: in a mod's chat a plain "mc undo" undoes only that mod's files (--any = the newest change of anyone)
+  const any = args.includes('--any'), words = args.filter(a => a !== '--any').join(' ').trim();
+  const r = cmd === 'redo' ? redo() : undo(words || (any ? null : projectFilter()));
   console.log((cmd === 'redo' ? 'redid: ' : 'undid: ') + r.label + '\n  ' + r.files.join('\n  '));
 }

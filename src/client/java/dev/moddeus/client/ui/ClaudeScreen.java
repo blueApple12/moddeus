@@ -148,15 +148,30 @@ public class ClaudeScreen extends Screen {
 		g.text(font, mark, x + 5, sy + 3, mc, false);
 		g.text(font, font.plainSubstrByWidth(label, side - x - 30), x + 15, sy + 3, act ? TEXT : SUB, false);
 		if (sy >= listTop && sy + 14 <= listBot) hits.add(new Hit(x, sy, side - x - 4, 14, s == null ? open : () -> { Bridge.focus(key); scrollUp = 0; }, false, false));
+		if (s != null && bool(s, "quick") && (hov || ChatActions.armed(key)) && sy >= listTop && sy + 14 <= listBot) { // remove a quick chat: × then "remove?"
+			boolean arm = ChatActions.armed(key);
+			String xl = arm ? "remove?" : "×";
+			int xw = font.width(xl), xx = side - 8 - xw;
+			rrect(g, xx - 3, sy + 1, xw + 6, 12, act ? PANEL_HI : PANEL);
+			g.text(font, xl, xx, sy + 3, arm ? ERR : in(xx - 3, sy, xw + 6, 14) ? TEXT : MUTED, false);
+			hits.add(new Hit(xx - 3, sy, xw + 6, 14, ChatActions.close(key), false, false));
+		}
 		return sy + 15;
 	}
 
-	static String openMod, confirmDelete;
+	static String openMod, confirmDelete, confirmImport;
+	static boolean importOpen;
 
 	/** Sidebar "Mods": each mod is a project with its own chats, On/Off, Undo, Delete. */
 	int mods(GuiGraphicsExtractor g, int sy, int listTop, int listBot) {
 		g.text(font, "Mods", 8, sy, MUTED, false);
+		String il = importOpen ? "Import ▾" : "Import"; // share: import a <Name>.moddeus.zip someone made
+		int iw = font.width(il), ix = side - 10 - iw;
+		boolean ih = mx < side && in(ix - 3, sy - 2, iw + 6, 12) && my >= listTop;
+		g.text(font, il, ix, sy, ih || importOpen ? ACCENT : MUTED, false);
+		if (sy >= listTop) hits.add(new Hit(ix - 3, sy - 2, iw + 6, 12, () -> { importOpen = !importOpen; confirmImport = null; }, false, false));
 		sy += 12;
+		if (importOpen) sy = imports(g, sy, listTop, listBot);
 		JsonArray sessions = Bridge.meta != null && Bridge.meta.has("sessions") ? Bridge.meta.getAsJsonArray("sessions") : new JsonArray();
 		for (JsonElement e : dev.moddeus.client.Projects.list()) {
 			JsonObject p = e.getAsJsonObject();
@@ -199,17 +214,18 @@ public class ClaudeScreen extends Screen {
 			}
 			// actions: + chat, On/Off, Undo, Delete (click twice)
 			int bx = 12;
-			String[] labels = {"+ chat", on ? "Off" : "On", "Undo", id.equals(confirmDelete) ? "Sure?" : "Delete"};
+			String[] labels = {"+ chat", on ? "Off" : "On", "Undo", "Export", id.equals(confirmDelete) ? "Sure?" : "Delete"};
 			Runnable[] acts = {
 				() -> Bridge.send("project-chat", "id", id),
 				() -> dev.moddeus.client.Projects.setEnabled(id, !on),
 				() -> dev.moddeus.client.Projects.undo(id),
+				() -> dev.moddeus.client.Projects.export(id),
 				() -> { if (id.equals(confirmDelete)) { confirmDelete = null; openMod = null; dev.moddeus.client.Projects.delete(id); } else confirmDelete = id; }};
 			for (int i = 0; i < labels.length; i++) {
 				int w = font.width(labels[i]) + 6;
 				if (bx + w > side - 4) { bx = 12; sy += 13; }
 				boolean bh = in(bx, sy, w, 12) && my >= listTop;
-				int fg = i == 3 ? (id.equals(confirmDelete) ? 0xFFFF5C7A : bh ? 0xFFFF5C7A : MUTED) : bh ? TEXT : MUTED;
+				int fg = i == 4 ? (id.equals(confirmDelete) ? 0xFFFF5C7A : bh ? 0xFFFF5C7A : MUTED) : bh ? TEXT : MUTED;
 				if (bh) rrect(g, bx, sy, w, 12, PANEL);
 				g.text(font, labels[i], bx + 3, sy + 2, fg, false);
 				if (sy >= listTop && sy + 12 <= listBot) hits.add(new Hit(bx, sy, w, 12, acts[i], false, false));
@@ -218,6 +234,26 @@ public class ClaudeScreen extends Screen {
 			sy += 16;
 		}
 		return sy + 6;
+	}
+
+	/** Import list: .moddeus.zip files in exports/ and Downloads. Click twice (it runs the mod's code). */
+	int imports(GuiGraphicsExtractor g, int sy, int listTop, int listBot) {
+		java.util.List<java.nio.file.Path> files = dev.moddeus.client.Projects.importable();
+		if (files.isEmpty()) { g.text(font, font.plainSubstrByWidth("No .moddeus.zip in exports or Downloads", side - 20), 12, sy + 2, MUTED, false); sy += 14; }
+		for (java.nio.file.Path f : files) {
+			String key = f.toString(), n = f.getFileName().toString().replace(".moddeus.zip", "").replace('_', ' ');
+			boolean sure = key.equals(confirmImport), h = mx < side && in(12, sy, side - 16, 13) && my >= listTop;
+			if (h || sure) rrect(g, 12, sy, side - 16, 13, PANEL);
+			g.text(font, font.plainSubstrByWidth(sure ? "Sure? It runs this mod's code" : "↓ " + n, side - 24), 15, sy + 3, sure ? WARN : h ? TEXT : SUB, false);
+			if (sy >= listTop && sy + 13 <= listBot) hits.add(new Hit(12, sy, side - 16, 13, () -> {
+				if (key.equals(confirmImport)) { confirmImport = null; importOpen = false; dev.moddeus.client.Projects.importMod(f); } else confirmImport = key;
+			}, false, false));
+			sy += 14;
+		}
+		boolean oh = mx < side && in(12, sy, side - 16, 13) && my >= listTop;
+		g.text(font, "Open exports folder", 15, sy + 3, oh ? ACCENT : MUTED, false);
+		if (sy >= listTop && sy + 13 <= listBot) hits.add(new Hit(12, sy, side - 16, 13, dev.moddeus.client.Projects::openExports, false, false));
+		return sy + 18;
 	}
 
 	/** Typing "/" opens a skill & command picker above the composer (like Claude Code / Desktop). */
@@ -308,16 +344,12 @@ public class ClaudeScreen extends Screen {
 		int rx = width - 6;
 		rx -= pillW("⋯");
 		pill(g, rx, 4, "⋯", false, () -> openMenu(width - 120, List.of(
-			new Opt("New chat", false, () -> Bridge.send("new")),
 			new Opt("Clear this chat", false, () -> Bridge.send("clear")),
 			new Opt("Close this chat", false, () -> Bridge.send("close")),
 			new Opt("Compact conversation", false, () -> Bridge.send("slash", "text", "/compact")),
-			new Opt("Show context usage", false, () -> Bridge.send("slash", "text", "/context")),
 			new Opt("Open raw terminal", false, () -> setTerminal(true)),
 			new Opt("Restart Claude Code", false, () -> Bridge.send("restart")),
 			new Opt("Restart with a fresh session", false, () -> Bridge.send("restart", "fresh", true)))));
-		rx -= pillW("+ New") + 3;
-		pill(g, rx, 4, "+ New", false, () -> Bridge.send("new"));
 		if (terminal) {
 			rx -= pillW("← Back to chat") + 3;
 			pill(g, rx, 4, "← Back to chat", true, () -> setTerminal(false));
@@ -335,6 +367,7 @@ public class ClaudeScreen extends Screen {
 				o.add(new Opt(modeLabel(m) + "  " + modeHint(m), m.equals(mode), () -> Bridge.send("mode", "value", m)));
 			openMenu(modeX, o);
 		});
+		rx = ModEffortPill.draw(this, g, rx, st);
 		String effort = str(st, "effort");
 		String el = (effort.isEmpty() ? "Effort" : cap(effort)) + " ▾";
 		rx -= pillW(el) + 3;

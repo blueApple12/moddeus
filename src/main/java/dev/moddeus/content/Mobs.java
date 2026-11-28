@@ -106,15 +106,31 @@ public final class Mobs {
 			case "chicken" -> EntityType.Builder.<Chicken>of(Chicken::new, MobCategory.CREATURE);
 			case "iron_golem" -> EntityType.Builder.<IronGolem>of(IronGolem::new, MobCategory.MISC);
 			case "bee" -> EntityType.Builder.<Bee>of(Bee::new, MobCategory.CREATURE);
-			default -> throw new IllegalArgumentException("unknown template " + tpl + " (" + String.join(", ", TEMPLATES) + ")");
+			default -> generic(tpl);
 		};
 		var dims = vanilla(tpl).getDimensions();
-		b.sized(dims.width(), dims.height()).eyeHeight(dims.eyeHeight());
-		if (o.has("fire_immune") && o.get("fire_immune").getAsBoolean()) b.fireImmune();
+		if (o.has("hitbox")) { var h = o.getAsJsonArray("hitbox"); float hw = h.get(0).getAsFloat(), hh = h.get(1).getAsFloat(); b.sized(hw, hh).eyeHeight(hh * 0.85f); } // from the cube model's bounds (tools/life.mjs)
+		else b.sized(dims.width(), dims.height()).eyeHeight(dims.eyeHeight());
+		b.clientTrackingRange(10);
+		if ((o.has("fire_immune") && o.get("fire_immune").getAsBoolean()) || vanilla(tpl).fireImmune()) b.fireImmune();
 		return b.build(k);
 	}
 
-	private static EntityType<?> vanilla(String tpl) {
+	/** Any vanilla living mob as a body/brain template (wolf, horse, villager, ghast, ...): its own factory + category. */
+	@SuppressWarnings({"unchecked", "rawtypes"})
+	private static EntityType.Builder<? extends LivingEntity> generic(String tpl) {
+		EntityType<?> v = vanilla(tpl);
+		if (!DefaultAttributes.hasSupplier(v)) throw new IllegalArgumentException("unknown template " + tpl + ": use any vanilla mob id (wolf, horse, cow, villager, ghast, ...)");
+		try {
+			var f = EntityType.class.getDeclaredField("factory");
+			f.setAccessible(true);
+			return EntityType.Builder.of((EntityType.EntityFactory) f.get(v), v.getCategory());
+		} catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+	}
+
+	public static EntityType<?> vanilla(String tpl) {
+		if (!java.util.Arrays.asList(TEMPLATES).contains(tpl))
+			return BuiltInRegistries.ENTITY_TYPE.getOptional(Identifier.parse(tpl.contains(":") ? tpl : "minecraft:" + tpl)).orElse(net.minecraft.world.entity.EntityTypes.ZOMBIE);
 		return switch (tpl) {
 			case "skeleton" -> net.minecraft.world.entity.EntityTypes.SKELETON; case "spider" -> net.minecraft.world.entity.EntityTypes.SPIDER; case "creeper" -> net.minecraft.world.entity.EntityTypes.CREEPER;
 			case "blaze" -> net.minecraft.world.entity.EntityTypes.BLAZE; case "pig" -> net.minecraft.world.entity.EntityTypes.PIG; case "chicken" -> net.minecraft.world.entity.EntityTypes.CHICKEN;
@@ -127,7 +143,8 @@ public final class Mobs {
 			case "skeleton" -> AbstractSkeleton.createAttributes(); case "spider" -> Spider.createAttributes();
 			case "creeper" -> Creeper.createAttributes(); case "blaze" -> Blaze.createAttributes(); case "pig" -> Pig.createAttributes();
 			case "chicken" -> Chicken.createAttributes(); case "iron_golem" -> IronGolem.createAttributes(); case "bee" -> Bee.createAttributes();
-			default -> Zombie.createAttributes();
+			case "zombie" -> Zombie.createAttributes();
+			default -> copy(vanilla(tpl));
 		};
 		@SuppressWarnings("unchecked")
 		var base = DefaultAttributes.getSupplier((EntityType<? extends LivingEntity>) vanilla(tpl));
@@ -139,6 +156,19 @@ public final class Mobs {
 		if (o.has("scale")) b.add(Attributes.SCALE, o.get("scale").getAsDouble());
 		if (o.has("knockback_resistance")) b.add(Attributes.KNOCKBACK_RESISTANCE, o.get("knockback_resistance").getAsDouble());
 		b.add(Attributes.FOLLOW_RANGE, o.has("follow_range") ? o.get("follow_range").getAsDouble() : base.hasAttribute(Attributes.FOLLOW_RANGE) ? base.getBaseValue(Attributes.FOLLOW_RANGE) : 16);
+		return b;
+	}
+
+	/** A builder holding every default attribute of a vanilla type. */
+	@SuppressWarnings("unchecked")
+	private static AttributeSupplier.Builder copy(EntityType<?> v) {
+		AttributeSupplier.Builder b = AttributeSupplier.builder();
+		try {
+			var f = AttributeSupplier.class.getDeclaredField("instances");
+			f.setAccessible(true);
+			var map = (Map<net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute>, net.minecraft.world.entity.ai.attributes.AttributeInstance>) f.get(DefaultAttributes.getSupplier((EntityType<? extends LivingEntity>) v));
+			for (var e : map.entrySet()) b.add(e.getKey(), e.getValue().getBaseValue());
+		} catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
 		return b;
 	}
 

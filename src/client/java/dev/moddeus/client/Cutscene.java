@@ -147,6 +147,7 @@ public final class Cutscene {
 
 	public static void define(String name, Supplier<Cutscene> make) { if (defs == null) defs = new HashMap<>(); defs.put(name, make); }
 	public static boolean play(String name) {
+		if (dev.moddeus.live.Stage.quiet()) { dev.moddeus.live.Stage.note(null, "cutscene " + name + " (skipped: stage)"); return false; } // stage tests never take the camera
 		Supplier<Cutscene> s = defs == null ? null : defs.get(name);
 		if (s == null) return false;
 		Minecraft.getInstance().execute(() -> s.get().play());

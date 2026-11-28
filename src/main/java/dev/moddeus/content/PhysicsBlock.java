@@ -464,6 +464,9 @@ public class PhysicsBlock extends Entity {
 			List<double[]> cs = new ArrayList<>(); // px,py,pz, nx,ny,nz, depth, mu, e, otherIndex, cell
 			gather(g, level, pos, R, others, cs, 0);
 			if (!cs.isEmpty()) touching = true;
+			// resting under another body: leave that contact to the body on top (it treats us as ground in its own tick);
+			// solving it from both sides shoved the base sideways and tipped the top block off
+			if (still > 0) for (int ci = cs.size() - 1; ci >= 0; ci--) { double[] c = cs.get(ci); if (c[9] >= 0 && c[4] < -0.6) cs.remove(ci); }
 			double mi = solve(cs, others, pos, invIw, M, h);
 			if (mi > maxImpact) { maxImpact = mi; double[] c = cs.get(0); impactAt = new Vec3(c[0], c[1], c[2]); impactCell = (int) c[10]; }
 			// integrate
@@ -478,7 +481,7 @@ public class PhysicsBlock extends Entity {
 				double rx = c[0] - before.x, ry = c[1] - before.y, rz = c[2] - before.z;
 				double mx = (v.x + (w.y * rz - w.z * ry)) * h, my = (v.y + (w.z * rx - w.x * rz)) * h, mz = (v.z + (w.x * ry - w.y * rx)) * h;
 				double d = c[6] - ((mx + corr.x) * c[3] + (my + corr.y) * c[4] + (mz + corr.z) * c[5]);
-				if (d > 0.01) { double k = Math.min(d - 0.01, 0.05) * 0.6; corr.add(c[3] * k, c[4] * k, c[5] * k); }
+				if (d > 0.01) { double k = Math.min(d - 0.01, 0.05) * (c[9] >= 0 ? 0.3 : 0.6); corr.add(c[3] * k, c[4] * k, c[5] * k); } // another awake body corrects its half too: full strength from both sides ping-ponged piles
 			}
 			pos = pos.add(corr.x, corr.y, corr.z);
 		}
@@ -574,6 +577,57 @@ public class PhysicsBlock extends Entity {
 				if (c != null) out.add(new double[] {px, py, pz, c[0], c[1], c[2], c[3], Math.sqrt(g.mu[cell] * c[4]) * f("friction", 1), Math.max(c[5], f("bounce", g.bounce[cell])), o, cell});
 			}
 		}
+		// Reverse contacts: corners/edge midpoints of world block shapes and the other bodies' sample points that are inside
+		// this body (at this substep's pos/R). Without them a block resting 30% over an edge touched it only at its own
+		// lattice points, balanced on that line and tipped off. Pushes this body along -n (n = our face nearest the point).
+		List<double[]> cand = new ArrayList<>(); // px, py, pz, other (-1 = world), mu, bounce
+		AABB near = getBoundingBox().move(pos.x - getX(), pos.y - getY(), pos.z - getZ()).inflate(0.05);
+		BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+		for (int bx = Mth.floor(near.minX); bx <= Mth.floor(near.maxX); bx++) for (int by = Mth.floor(near.minY); by <= Mth.floor(near.maxY); by++) for (int bz = Mth.floor(near.minZ); bz <= Mth.floor(near.maxZ); bz++) {
+			BlockState s = level.getBlockState(mp.set(bx, by, bz));
+			if (s.isAir()) continue;
+			VoxelShape shape = s.getCollisionShape(level, mp);
+			if (shape.isEmpty()) continue;
+			double wmu = Mth.clamp((1 - s.getBlock().getFriction()) * 1.5, 0.02, 1.0), we = s.getBlock() instanceof net.minecraft.world.level.block.SlimeBlock ? 0.85 : 0.12;
+			for (AABB sa : shape.toAabbs()) for (int ix = 0; ix <= 2; ix++) for (int iy = 0; iy <= 2; iy++) for (int iz = 0; iz <= 2; iz++) {
+				if ((ix == 1 ? 1 : 0) + (iy == 1 ? 1 : 0) + (iz == 1 ? 1 : 0) > 1) continue; // corners + edge midpoints (faces: our own points)
+				double px = bx + sa.minX + (sa.maxX - sa.minX) * ix / 2, py = by + sa.minY + (sa.maxY - sa.minY) * iy / 2, pz = bz + sa.minZ + (sa.maxZ - sa.minZ) * iz / 2;
+				if (near.contains(px, py, pz)) cand.add(new double[] {px, py, pz, -1, wmu, we});
+			}
+		}
+		for (int o = 0; o < others.size(); o++) {
+			PhysicsBlock ob = others.get(o);
+			Grid og = ob.grid();
+			if (og == null || ob.q == null || !ob.getBoundingBox().intersects(near)) continue;
+			Matrix3d oR = new Matrix3d().rotation(ob.q);
+			for (int k = 0; k < og.pts.length; k += 4) {
+				oR.transform(t.set(og.pts[k], og.pts[k + 1], og.pts[k + 2]));
+				int oc = Math.min((int) og.pts[k + 3], og.n - 1);
+				cand.add(new double[] {ob.getX() + t.x, ob.getY() + t.y, ob.getZ() + t.z, o, og.mu[oc], og.bounce[oc]});
+			}
+		}
+		Vector3d lp = new Vector3d(), fn = new Vector3d();
+		for (double[] p : cand) {
+			R.transformTranspose(lp.set(p[0] - pos.x, p[1] - pos.y, p[2] - pos.z));
+			double gx = lp.x + g.com.x, gy = lp.y + g.com.y, gz = lp.z + g.com.z;
+			int cx = Mth.floor(gx), cy = Mth.floor(gy), cz = Mth.floor(gz), i = g.cell(cx, cy, cz);
+			if (i < 0 || g.box[i] == null) continue;
+			AABB a = g.box[i];
+			double lx = gx - cx, ly = gy - cy, lz = gz - cz;
+			if (lx <= a.minX || lx >= a.maxX || ly <= a.minY || ly >= a.maxY || lz <= a.minZ || lz >= a.maxZ) continue;
+			double[] d = {lx - a.minX, a.maxX - lx, ly - a.minY, a.maxY - ly, lz - a.minZ, a.maxZ - lz};
+			int best = -1;
+			double bestScore = 0, bnx = 0, bny = 0, bnz = 0;
+			for (int f = 0; f < 6; f++) {
+				Direction dir = dirs()[f];
+				if (g.full(cx + dir.getStepX(), cy + dir.getStepY(), cz + dir.getStepZ())) continue;
+				R.transform(fn.set(dir.getStepX(), dir.getStepY(), dir.getStepZ()));
+				double score = d[f] - 0.08 * Math.abs(fn.y);
+				if (best < 0 || score < bestScore) { best = f; bestScore = score; bnx = fn.x; bny = fn.y; bnz = fn.z; }
+			}
+			if (best < 0) continue;
+			out.add(new double[] {p[0], p[1], p[2], -bnx, -bny, -bnz, d[best], Math.sqrt(g.mu[i] * p[4]) * f("friction", 1), Math.max(p[5], f("bounce", g.bounce[i])), p[3], i});
+		}
 	}
 
 	static Direction[] dirs;
@@ -592,10 +646,14 @@ public class PhysicsBlock extends Entity {
 		if (lx <= a.minX || lx >= a.maxX || ly <= a.minY || ly >= a.maxY || lz <= a.minZ || lz >= a.maxZ) return null;
 		double[] d = {lx - a.minX, a.maxX - lx, ly - a.minY, a.maxY - ly, lz - a.minZ, a.maxZ - lz};
 		int best = -1;
+		double[] bias = new double[6];
 		for (int f = 0; f < 6; f++) {
 			Direction dir = dirs()[f];
 			if (g.full(cx + dir.getStepX(), cy + dir.getStepY(), cz + dir.getStepZ())) continue;
-			if (best < 0 || d[f] < d[best]) best = f;
+			// resting contact: prefer the faces that point up/down in the world, like world contacts do; else a block
+			// landing near another's edge got a sideways normal and was shoved off (it tumbled off a supported stack)
+			bias[f] = 0.08 * Math.abs(toWorld(new Vec3(dir.getStepX(), dir.getStepY(), dir.getStepZ()), true).y);
+			if (best < 0 || d[f] - bias[f] < d[best] - bias[best]) best = f;
 		}
 		if (best < 0) return null;
 		Vec3 n = toWorld(new Vec3(dirs()[best].getStepX(), dirs()[best].getStepY(), dirs()[best].getStepZ()), true);
@@ -620,6 +678,10 @@ public class PhysicsBlock extends Entity {
 			double vn = vr.x * c[3] + vr.y * c[4] + vr.z * c[5];
 			if (-vn > hardest) hardest = -vn;
 			target[i] = vn < -2.0 ? -c[8] * vn : 0;
+			// stacks: a resting body UNDER this one is ground (shock propagation; hard landings too: coupling them shoved the base sideways). Solved per body,
+			// pushing it down only came back next tick, so stacks never slept and sank into each other.
+			int o = (int) c[9];
+			if (o >= 0 && c[4] > 0.5) { PhysicsBlock b = others.get(o); if (b.asleep || b.still > 0) c[9] = -1; }
 		}
 		for (int it = 0; it < 10; it++) {
 			for (int i = 0; i < n; i++) {
@@ -679,7 +741,7 @@ public class PhysicsBlock extends Entity {
 			PhysicsBlock b = others.get(o);
 			b.v.sub(jx / oM[o], jy / oM[o], jz / oM[o]);
 			b.w.sub(oInv[o].transform(ro.cross(j, new Vector3d())));
-			if (b.asleep && j.length() > 1e-3) b.wake();
+			if (b.asleep && j.length() / oM[o] > 0.05) b.wake(); // tiny contact impulses from a settling neighbour kept whole piles awake
 		}
 	}
 

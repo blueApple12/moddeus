@@ -40,6 +40,7 @@ public final class DataReload {
 	/** Run on the server thread. Returns a one-line report. */
 	public static String reload(MinecraftServer s) {
 		long t0 = System.nanoTime();
+		PackNamespaces.refresh(); // a new mod namespace (data/<ns>) is visible from now on
 		Map<Path, Long> now = prepared != null && System.nanoTime() - preparedAt < 2_000_000_000L ? prepared : snapshot(s);
 		prepared = null;
 		Map<Path, Long> before = last;

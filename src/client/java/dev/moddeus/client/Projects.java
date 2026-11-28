@@ -22,7 +22,8 @@ import net.minecraft.client.Minecraft;
  * Mod projects (G screen sidebar): a mod = Java classes named <Id>*.java in content/ or client/content/, plus packs named
  * <Id>-DP (world datapacks/) and <Id>-RP (run/resourcepacks/). On/off runs the classes' @OnUnload / @OnReload live, runs
  * the datapack's <ns>:uninstall (or <ns>:off) then /datapack disable (enable re-runs its load), and toggles the resource pack; off survives swaps and restarts (run/moddeus/projects.json, owned by the bridge).
- * Undo / delete run node tools/mc.mjs undo|remove <Id> in the background.
+ * Undo / delete run node tools/mc.mjs undo|remove <Id> in the background. Delete removes everything the mod owns (Java, content, assets/data
+ * of its namespace, packs, shared lang/sounds keys: tools/share.mjs owned) and its project entry.
  */
 public final class Projects {
 	static Map<String, Boolean> enabled; // id -> on
@@ -160,6 +161,7 @@ public final class Projects {
 		LagGuard.quiet(15_000); // the reloads this causes are not the mod's lag
 		state().put(id, on);
 		Bridge.send("project-set", "id", id, "enabled", on);
+		uninstallLook(id, on);
 		List<String> names = classes(id);
 		int dps = datapacks(id).size(), rps = resourcepacks(id).size();
 		Runnable work = () -> {
@@ -185,9 +187,41 @@ public final class Projects {
 		HotReloader.say((on ? "§aOn§r: " : "§7Off§r: ") + id + (parts.isEmpty() ? " (nothing found: name classes " + id + "*.java, packs " + id + "-DP / " + id + "-RP)" : " (" + String.join(", ", parts) + ")"));
 	}
 
+	// ---------------------------------------------------------------- sharing (tools/share.mjs): exports/<Name>.moddeus.zip
+	static java.nio.file.Path exportsDir() { return root().toPath().resolve("exports"); }
+	static List<java.nio.file.Path> importable;
+	static long importableAt;
+
+	/** .moddeus.zip files in exports/ and ~/Downloads, newest first (re-listed at most every 2 s). */
+	public static List<java.nio.file.Path> importable() {
+		if (importable != null && System.currentTimeMillis() - importableAt < 2000) return importable;
+		List<java.nio.file.Path> out = new ArrayList<>();
+		for (java.nio.file.Path d : List.of(exportsDir(), java.nio.file.Path.of(System.getProperty("user.home"), "Downloads")))
+			try (Stream<java.nio.file.Path> s = Files.list(d)) { s.filter(p -> p.getFileName().toString().endsWith(".moddeus.zip")).forEach(out::add); } catch (Exception ignored) {}
+		out.sort(java.util.Comparator.comparingLong((java.nio.file.Path p) -> p.toFile().lastModified()).reversed());
+		importableAt = System.currentTimeMillis();
+		return importable = out.size() > 12 ? out.subList(0, 12) : out;
+	}
+
+	public static void export(String id) { mc("Exported " + name(id), Projects::openExports, "export", id); }
+
+	public static void importMod(java.nio.file.Path f) { importableAt = 0; mc("Imported " + f.getFileName(), null, "import", f.toString()); }
+
+	public static void openExports() {
+		try {
+			Files.createDirectories(exportsDir());
+			String d = exportsDir().toString(), os = System.getProperty("os.name").toLowerCase();
+			new ProcessBuilder(os.contains("win") ? List.of("explorer", d) : os.contains("mac") ? List.of("open", d) : List.of("xdg-open", d)).start();
+		} catch (Exception ignored) {}
+	}
+
 	public static void undo(String id) { mc("Undo " + id, null, "undo", id); }
 
-	public static void delete(String id) { mc("Deleted " + id, () -> Bridge.send("project-delete", "id", id), "remove", id); }
+	/** Delete = gone from the game: switched off live first (hooks, tab, keys, packs), then mc remove deletes every file it owns. */
+	public static void delete(String id) {
+		try { setEnabled(id, false); } catch (Throwable t) { Moddeus.LOG.warn("delete: off " + id, t); }
+		mc("Deleted " + name(id), () -> Bridge.send("project-delete", "id", id), "remove", id);
+	}
 
 	/** node tools/mc.mjs <args> in the background; its last lines go to chat. */
 	static void mc(String title, Runnable onSuccess, String... args) {
@@ -222,7 +256,14 @@ public final class Projects {
 	}
 
 	@OnReload
+	/** Off looks like uninstalled: items out of the creative inventory, key binds gone (On: back, its hooks re-add the keys). */
+	static void uninstallLook(String id, boolean on) {
+		try { dev.moddeus.content.ModTab.setHidden(name(id), id, !on); } catch (Throwable t) { Moddeus.LOG.warn("tab hide " + id, t); }
+		if (!on) try { Keys.remove(name(id)); Keys.remove(id); } catch (Throwable t) { Moddeus.LOG.warn("keys " + id, t); }
+	}
+
 	public static void hook() {
+		for (var e : state().entrySet()) if (!e.getValue()) uninstallLook(e.getKey(), false); // switched-off mods stay hidden after a restart
 		if (System.getProperties().putIfAbsent("moddeus.projects", Boolean.TRUE) != null) return;
 		ClientPlayConnectionEvents.JOIN.register(Projects::onJoin);
 	}

@@ -22,7 +22,8 @@ import net.minecraft.world.item.Items;
 
 /**
  * Creative tabs, all live:
- * - "Moddeus": every moddeus:* item (the full catalog).
+ * - No "Moddeus" catalog tab: every mod's items live in its OWN tab (mc.mjs fills "tab" with the mod's name); core
+ *   leftovers without a "tab" get none.
  * - A mod's OWN tab: content JSON "tab": "<Mod Name>" (mc item ... --tab "Storm Staff"); datapack mods list stacks in
  *   their pack's moddeus.json (client/PackExtras -> {@link #packStacks}). One tab per name, icon = first item.
  * - A vanilla tab for single small things: "tab": "combat" | tools | food | building | colored | natural | functional |
@@ -37,6 +38,27 @@ public final class ModTab {
 	public static Map<Identifier, String> tabs() { if (tabs == null) tabs = new ConcurrentHashMap<>(); return tabs; }
 	public static Map<String, List<ItemStack>> packStacks() { if (packStacks == null) packStacks = new ConcurrentHashMap<>(); return packStacks; }
 	public static Map<String, String> packIcons() { if (packIcons == null) packIcons = new ConcurrentHashMap<>(); return packIcons; }
+	static java.util.Set<String> hidden; // switched-off mods: "tab:<name>" + "id:<snake_id>" + "ns:<namespace>" (lower case)
+	static java.util.Set<String> hidden() { if (hidden == null) hidden = ConcurrentHashMap.newKeySet(); return hidden; }
+
+	/** G screen Off = looks uninstalled: the mod's items leave every creative tab (its own tab hides when empty). */
+	public static void setHidden(String modName, String projectId, boolean hide) {
+		String snake = projectId.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase();
+		String ns = modName.toLowerCase().replaceAll("[^a-z0-9]+", "_").replaceAll("^_|_$", ""); // the mod's own namespace
+		for (String k : List.of("tab:" + modName.toLowerCase(), "id:" + snake, "ns:" + ns)) if (hide) hidden().add(k); else hidden().remove(k);
+		refresh();
+	}
+
+	/** Item of a switched-off mod: in its tab, or named after it (<snake_id>_*). */
+	static boolean hiddenItem(Identifier item, String tab) {
+		if (hidden == null || hidden.isEmpty()) return false;
+		if (tab != null && hidden.contains("tab:" + tab.toLowerCase())) return true;
+		if (hidden.contains("ns:" + item.getNamespace())) return true;
+		String p = item.getPath();
+		for (String h : hidden) if (h.startsWith("id:") && (p.equals(h.substring(3)) || p.startsWith(h.substring(3) + "_"))) return true;
+		return false;
+	}
+
 	static Map<String, Identifier> registered() { if (registered == null) registered = new ConcurrentHashMap<>(); return registered; }
 
 	static Map<String, ResourceKey<CreativeModeTab>> VANILLA; // lazy: a static added by a swap starts null
@@ -64,10 +86,15 @@ public final class ModTab {
 		return switch (t) { case "weapons", "weapon", "armor" -> "combat"; case "drinks", "drink" -> "food"; case "blocks" -> "building"; case "eggs" -> "spawn_eggs"; case "materials" -> "ingredients"; default -> null; };
 	}
 
+	/** The old "Moddeus" catalog tab is gone. Its code stays compiled (never runs) so lambda numbers, and with them live tabs' callbacks, survive swaps. */
+	static boolean catalog() { return false; }
+
 	@OnReload
 	public static void register() {
+		Identifier catalog = Identifier.fromNamespaceAndPath(Moddeus.MOD_ID, "moddeus");
+		if (!catalog() && LiveRegistry.exists(BuiltInRegistries.CREATIVE_MODE_TAB, catalog)) { resetCreativePage(); LiveRegistry.unregister(BuiltInRegistries.CREATIVE_MODE_TAB, catalog); }
 		boolean fresh = !LiveRegistry.exists(BuiltInRegistries.CREATIVE_MODE_TAB, LiveRegistry.id("moddeus"));
-		LiveRegistry.register(BuiltInRegistries.CREATIVE_MODE_TAB, LiveRegistry.id("moddeus"), k -> FabricCreativeModeTab.builder()
+		if (catalog()) LiveRegistry.register(BuiltInRegistries.CREATIVE_MODE_TAB, LiveRegistry.id("moddeus"), k -> FabricCreativeModeTab.builder()
 			.title(Component.literal("Moddeus"))
 			.icon(ModTab::icon)
 			.displayItems((params, out) -> BuiltInRegistries.ITEM.entrySet().stream()
@@ -75,7 +102,7 @@ public final class ModTab {
 				.sorted(java.util.Comparator.comparing(e -> e.getKey().identifier().getPath()))
 				.forEach(e -> out.accept(e.getValue())))
 			.build());
-		if (fresh && LiveRegistry.server != null) page(LiveRegistry.id("moddeus"));
+		if (catalog() && fresh && LiveRegistry.server != null) page(LiveRegistry.id("moddeus"));
 		if (System.getProperties().putIfAbsent("moddeus.tabs.vanilla", Boolean.TRUE) == null)
 			CreativeModeTabEvents.MODIFY_OUTPUT_ALL.register(ModTab::modifyAll);
 		sync();
@@ -106,10 +133,10 @@ public final class ModTab {
 	/** Everything that belongs in a tab (mod tab name or vanilla key), content items first. */
 	static List<ItemStack> stacks(String tab) {
 		List<ItemStack> l = new ArrayList<>();
-		tabs().entrySet().stream().filter(e -> e.getValue().equalsIgnoreCase(tab) || tab.equals(vanillaKey(e.getValue())))
+		tabs().entrySet().stream().filter(e -> e.getValue().equalsIgnoreCase(tab) || tab.equals(vanillaKey(e.getValue()))).filter(e -> !hiddenItem(e.getKey(), e.getValue()))
 			.sorted(Map.Entry.comparingByKey())
-			.forEach(e -> BuiltInRegistries.ITEM.getOptional(e.getKey()).ifPresent(i -> l.add(new ItemStack(i))));
-		for (var e : packStacks().entrySet()) if (e.getKey().equalsIgnoreCase(tab) || tab.equals(vanillaKey(e.getKey()))) for (ItemStack s : e.getValue()) l.add(s.copy());
+			.forEach(e -> { BuiltInRegistries.ITEM.getOptional(e.getKey()).ifPresent(i -> l.add(new ItemStack(i))); ModTabExtras.add(l, e.getKey()); }); // + eggs, potions, books
+		for (var e : packStacks().entrySet()) if ((e.getKey().equalsIgnoreCase(tab) || tab.equals(vanillaKey(e.getKey()))) && !hidden().contains("tab:" + e.getKey().toLowerCase())) for (ItemStack s : e.getValue()) l.add(s.copy());
 		return l;
 	}
 

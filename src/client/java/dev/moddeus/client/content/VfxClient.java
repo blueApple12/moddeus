@@ -267,8 +267,10 @@ public final class VfxClient {
 		Vector3f d = new Vector3f((float) dir.x, (float) dir.y, (float) dir.z), up = Math.abs(d.y) > 0.95f ? new Vector3f(1, 0, 0) : new Vector3f(0, 1, 0);
 		Vector3f a = new Vector3f(d).cross(up).normalize(w / 2), b = new Vector3f(d).cross(a).normalize(w / 2);
 		Vector3f o = new Vector3f(0, 1.4f, 0), e = new Vector3f(d).mul(len).add(o);
-		for (Vector3f side : new Vector3f[] {a, b})
+		for (Vector3f side : new Vector3f[] {a, b}) { // both windings: the render type culls back faces, so one-sided planes vanished from half the view angles
 			quad(pose, vc, new Vector3f(o).sub(side), new Vector3f(o).add(side), new Vector3f(e).add(side), new Vector3f(e).sub(side), 0, 1, v0, v1, col);
+			quad(pose, vc, new Vector3f(o).add(side), new Vector3f(o).sub(side), new Vector3f(e).sub(side), new Vector3f(e).add(side), 1, 0, v0, v1, col);
+		}
 	}
 	/** Sweeping arc in front of dir: revealed over the first 40% of its life, tail fading behind. */
 	private static void slash(PoseStack.Pose pose, VertexConsumer vc, Vec3 dir, float r, float w, float arcDeg, float tiltDeg, float t, int col, float v0, float v1) {

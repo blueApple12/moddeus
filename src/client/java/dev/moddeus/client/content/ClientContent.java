@@ -30,7 +30,7 @@ public final class ClientContent {
 		boolean renderers = false;
 		for (var e : Mobs.TYPES.entrySet()) {
 			if (!DONE.add(e.getValue())) continue;
-			register(e.getValue(), renderer(Mobs.template(e.getKey()), Identifier.fromNamespaceAndPath(e.getKey().getNamespace(), "textures/entity/" + e.getKey().getPath() + ".png")));
+			register(e.getValue(), CubeMobs.pick(e.getKey(), renderer(Mobs.template(e.getKey()), Identifier.fromNamespaceAndPath(e.getKey().getNamespace(), "textures/entity/" + e.getKey().getPath() + ".png"))));
 			renderers = true;
 		}
 		var phys = dev.moddeus.content.Physics.TYPE;

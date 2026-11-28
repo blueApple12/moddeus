@@ -1,5 +1,5 @@
 // Fast self-test of the live stack. Every check is hard-capped at 10s; all run in parallel.
-//   node tools/mc.mjs test [name ...]     names: game, cmd, blocks, eval, shot, bridge, permission, mode
+//   node tools/mc.mjs test [name ...]     names: game, cmd, blocks, eval, shot, bridge, permission, mode, sound, refs
 //   node tools/mc.mjs test approval       opt-in: real Haiku chat asks to run Bash -> card -> allow (a few tokens)
 // Needs the game running with a world open (game checks) and the bridge up (bridge checks). No model usage.
 import fs from 'node:fs';
@@ -29,6 +29,11 @@ const mc = args => new Promise((res, rej) => execFile(process.execPath, [path.jo
   (e, out, err) => e ? rej(new Error((err || out || e.message).trim().split('\n').slice(0, 6).join(' | '))) : res(out)));
 
 const tests = {
+  async refs() { // offline: tools/preflight.mjs (also runs + repairs before every launch in play.bat)
+    const r = await new Promise(res => execFile(process.execPath, [path.join(ROOT, 'tools/preflight.mjs'), '--check'], { cwd: ROOT, timeout: LIMIT }, (e, out) => res({ e, out })));
+    assert(!r.e, 'world would not load after a restart: ' + r.out.trim().split('\n').slice(0, 4).join(' | ')); return r.out.trim().split('\n')[0]; },
+  async sound() { // client sound engine: a vanilla event resolves and really starts (200 blocks away: inaudible); tools/sounds.mjs, SOUNDS.md
+    const out = await mc(['sound-test', 'minecraft:block.note_block.harp']); assert(/play=STARTED/.test(out), out.trim().split('\n').slice(-2).join(' | ')); return out.match(/play=\S+ active=\S+/)[0]; },
   async game() { const c = await game('context'); assert(c.player && c.pos, 'no player in context'); return c.player + ' @ ' + c.block_pos; },
   async cmd() { const [r] = await game('command', { commands: ['time query gametime'] }); assert(/\d/.test(r.output), 'no output: ' + r.output); return r.output; },
   async blocks() { const c = await game('context'); const [x, y, z] = c.block_pos.split(', ').map(Number);

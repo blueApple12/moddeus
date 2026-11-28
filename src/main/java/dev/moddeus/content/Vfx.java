@@ -1,18 +1,11 @@
 package dev.moddeus.content;
 
 import com.google.gson.JsonObject;
-import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.context.CommandContext;
 import dev.moddeus.live.LiveRegistry;
 import dev.moddeus.live.OnReload;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.minecraft.commands.CommandBuildContext;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -31,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Custom VFX: content type "vfx" = layered, textured, glowing effects rendered by the client
- * (VfxClient). This side only decides WHEN to play them: /vfx <id>, item "vfx": {"use": id, "hit": id,
+ * (VfxClient). This side only decides WHEN to play them: Java Vfx.play(Vfx.id("ns:id"), pos, dir, followOrNull), item "vfx": {"use": id, "hit": id,
  * "cooldown": ticks}, mob "aura": id (+ "aura_every" ticks).
  */
 public final class Vfx {
@@ -54,20 +47,6 @@ public final class Vfx {
 			ServerTickEvents.END_SERVER_TICK.register(Vfx::tick);
 			UseItemCallback.EVENT.register(Vfx::onUse);
 			AttackEntityCallback.EVENT.register(Vfx::onHit);
-			CommandRegistrationCallback.EVENT.register(Vfx::onCommands);
-		}
-		var s = LiveRegistry.server;
-		if (s != null) {
-			try { // drop the old /vfx node so a changed argument layout replaces it instead of merging
-				var root = s.getCommands().getDispatcher().getRoot();
-				for (String f : new String[] {"children", "literals"}) {
-					var fld = com.mojang.brigadier.tree.CommandNode.class.getDeclaredField(f);
-					fld.setAccessible(true);
-					((Map<?, ?>) fld.get(root)).remove("vfx");
-				}
-			} catch (ReflectiveOperationException ignored) {}
-			onCommands(s.getCommands().getDispatcher(), null, null);
-			s.getPlayerList().getPlayers().forEach(pl -> s.getCommands().sendCommands(pl));
 		}
 	}
 
@@ -76,23 +55,9 @@ public final class Vfx {
 	/** Plays a vfx at pos (following the entity when given). */
 	public static void play(Identifier id, Vec3 pos, Vec3 dir, Entity follow) {
 		if (!DEFS.containsKey(id)) throw new IllegalArgumentException("no vfx " + id + " (have: " + DEFS.keySet() + ")");
+		if (dev.moddeus.live.Stage.isStage(pos) || dev.moddeus.live.Stage.isStage(follow)) { dev.moddeus.live.Stage.note(pos, "vfx " + id); return; } // stage test: no shake/visuals on the player's screen
 		Sink s = client;
 		if (s != null) s.play(id, pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, follow == null ? -1 : follow.getId());
-	}
-
-	public static void onCommands(CommandDispatcher<CommandSourceStack> d, CommandBuildContext ctx, Commands.CommandSelection sel) {
-		d.register(Commands.literal("vfx").then(Commands.argument("id", StringArgumentType.greedyString()).executes(Vfx::runCommand)));
-	}
-
-	public static int runCommand(CommandContext<CommandSourceStack> c) {
-		var src = c.getSource();
-		try {
-			play(id(StringArgumentType.getString(c, "id").trim()), src.getPosition(), Vec3.directionFromRotation(src.getRotation()), null); // at the command position: use "execute as/at/positioned" to aim it
-			return 1;
-		} catch (Exception e) {
-			src.sendFailure(Component.literal("vfx: " + e.getMessage()));
-			return 0;
-		}
 	}
 
 	public static void tick(MinecraftServer server) {

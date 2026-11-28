@@ -79,6 +79,7 @@ public final class LagGuard {
 	public static void end(MinecraftServer s) {
 		long now = System.nanoTime(), dt = now - tickStart;
 		tickStart = 0;
+		dev.moddeus.client.SwapHitch.tick(dt);
 		windowTicks++;
 		windowNanos += dt;
 		maxTick = Math.max(maxTick, dt);
@@ -126,7 +127,9 @@ public final class LagGuard {
 		boolean swapping = System.currentTimeMillis() < ignoreUntil || s.tickRateManager().isFrozen();
 		slowSeconds = !swapping && mspt > 60 ? slowSeconds + 1 : 0;
 		long renderTotal = rs().values().stream().mapToLong(Long::longValue).sum();
-		lowFpsSeconds = !swapping && fps > 0 && fps < 25 && renderTotal > 0 ? lowFpsSeconds + 1 : 0;
+		// vanilla caps FPS when AFK/minimized/unfocused (FramerateLimitTracker): that low FPS is not lag
+		boolean throttled = Minecraft.getInstance().getFramerateLimitTracker().getThrottleReason().toString().equals("NONE") == false;
+		lowFpsSeconds = !swapping && !throttled && fps > 0 && fps < 25 && renderTotal > 0 ? lowFpsSeconds + 1 : 0;
 		if (slowSeconds >= 5) {
 			var worst = cost.entrySet().stream().filter(e -> !e.getKey().equals("vanilla")).max(Map.Entry.comparingByValue()).orElse(null);
 			if (worst != null && worst.getValue() > 0.4 * mspt * windowTicks / secs) { switchOff(worst.getKey(), "the server ran at " + Math.round(mspt) + " ms per tick (normal is under 50)"); slowSeconds = 0; }
@@ -206,7 +209,7 @@ public final class LagGuard {
 				}
 				if (render == null) for (Thread t : Thread.getAllStackTraces().keySet()) if (t.getName().equals("Render thread")) render = t;
 				int fps = Minecraft.getInstance().getFps();
-				if (render != null && fps > 0 && fps < 40) {
+				if (render != null && fps > 0 && fps < 40 && Minecraft.getInstance().getFramerateLimitTracker().getThrottleReason().toString().equals("NONE")) {
 					String who = culprit(render.getStackTrace());
 					if (who != null && !who.equals("vanilla")) rs().merge(who, 1L, Long::sum);
 				}

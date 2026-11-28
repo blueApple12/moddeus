@@ -22,7 +22,11 @@ public final class Snapshots {
 			File root = new File(System.getProperty("moddeus.project", new File(System.getProperty("user.dir")).getParent())); // dev: the game runs in <project>/run
 			List<String> cmd = new java.util.ArrayList<>(List.of("node", "tools/mc.mjs", "snap", label.replace("\"", "")));
 			if (System.getProperty("os.name", "").startsWith("Windows")) cmd.addAll(0, List.of("cmd.exe", "/c", "start", "/LOW", "/B")); // never steal CPU from the game
-			new ProcessBuilder(cmd).directory(root).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+			// off the render thread: starting a process takes ~20-50 ms on Windows (it showed up as a frame hitch after every swap)
+			Thread.startVirtualThread(() -> {
+				try { new ProcessBuilder(cmd).directory(root).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start(); }
+				catch (Exception e) { Moddeus.LOG.warn("snapshot failed: {}", e.toString()); }
+			});
 		} catch (Exception e) {
 			Moddeus.LOG.warn("snapshot failed: {}", e.toString());
 		}

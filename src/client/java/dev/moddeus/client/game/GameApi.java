@@ -74,7 +74,12 @@ public final class GameApi {
 				ex.close();
 			});
 			http.setExecutor(java.util.concurrent.Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "Moddeus-GameApi"); t.setDaemon(true); return t; }));
-			http.start();
+			Thread st = new Thread(http::start); // its dispatcher thread inherits daemon: a non-daemon one kept the JVM alive after quitting (shutdown watchdog crash)
+			st.setDaemon(true);
+			st.start();
+			st.join();
+			if (server != null) try { server.stop(0); } catch (Throwable ignored) {} // reclaim: drop the old server
+			server = http;
 			Path dir = root().resolve("run/moddeus");
 			Files.createDirectories(dir);
 			JsonObject info = new JsonObject();
@@ -84,10 +89,15 @@ public final class GameApi {
 			ownerOnly(dir.resolve("game.json"));
 			Moddeus.LOG.info("Game API on port {}", http.getAddress().getPort());
 			FastRun.warm();
+			Thread sb = new Thread(SourceBuild::baseline, "Moddeus-SourceBuild-baseline");
+			sb.setDaemon(true);
+			sb.start();
 		} catch (Throwable t) {
 			Moddeus.LOG.error("Game API failed to start", t);
 		}
 	}
+
+	static HttpServer server;
 
 	/** The token lets anyone run code in the game: on Linux/macOS make the file owner-only (Windows profiles are already private). */
 	static void ownerOnly(Path f) {
@@ -97,8 +107,11 @@ public final class GameApi {
 	/** Two game copies running: the one with a world loaded takes over game.json (new server, new token). */
 	@OnReload
 	public static void reclaim() {
-		if (net.minecraft.client.Minecraft.getInstance().level == null || System.getProperty("moddeus.gameapi.reclaimed") != null) return;
-		System.setProperty("moddeus.gameapi.reclaimed", "1");
+		if (net.minecraft.client.Minecraft.getInstance().level == null) return;
+		try { // already ours? (a one-shot guard here left a world-less duplicate owning game.json)
+			var j = JsonParser.parseString(Files.readString(root().resolve("run/moddeus/game.json"))).getAsJsonObject();
+			if (server != null && j.get("port").getAsInt() == server.getAddress().getPort()) return;
+		} catch (Exception ignored) {}
 		System.getProperties().remove("moddeus.gameapi");
 		start();
 	}
@@ -120,7 +133,7 @@ public final class GameApi {
 			case "lag" -> onClient(dev.moddeus.client.LagGuard::report);
 			case "quick" -> quick(in);
 			case "run" -> run(in);
-			case "build" -> SourceBuild.build(); // portable mode: compile the workspace sources in game
+			case "build" -> dev.moddeus.client.HotReloader.build(!in.has("java") || in.get("java").getAsBoolean()); // incremental in-game build, swapped on the reloader thread
 			case "say" -> onServer(() -> {
 				player().sendSystemMessage(Component.literal("§d[Moddeus]§r " + in.get("text").getAsString()));
 				return ok();
@@ -305,7 +318,7 @@ public final class GameApi {
 			Thread.sleep(250); // a few frames without our UI
 			CompletableFuture<Void> done = new CompletableFuture<>();
 			mc.execute(() -> Screenshot.takeScreenshot(mc.gameRenderer.mainRenderTarget(), img -> {
-				try { img.writeToFile(file); done.complete(null); } catch (Throwable t) { done.completeExceptionally(t); } finally { img.close(); }
+				ShotWriter.save(img, file, done); // PNG encode off the render thread (~200 ms freeze per shot before)
 			}));
 			done.get(10, TimeUnit.SECONDS);
 		} finally {

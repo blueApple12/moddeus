@@ -1,48 +1,108 @@
-# VFX design: make every effect good AND different
-(Deeper background: skills `game-vfx` (lifecycle, budgets, recipes) and `create-game-vfx` (meaning before spectacle).)
+# VFX design: every effect written for THIS mod
+(Background: skills `game-vfx` (lifecycle, budgets) and `create-game-vfx` (meaning before spectacle).)
 
-The presets (`mc vfx --preset ...`) and layer types are BUILDING BLOCKS, not the answer. If every ability is
-"expanding ring + flash + particle burst + shake" in a different color, everything looks the same, and that's a bug the
-player has reported. This guide is about deciding WHAT the effect is before choosing layers.
+There are no finished effects to pick. `mc vfx --preset` / `mc vfx-tex --shape` are SAMPLES (each use prints
+"preset = sample only"): read `tools/vfxlib.mjs` to see how a nova or a slash is layered, then write your own. If every
+ability is "ring + flash + burst + shake" in another color, the mods all look the same: that is a bug the player reported.
 
-## 1. Write the effect's signature first (one line per ability)
-**meaning · material · shape language · motion verb · timing · color story · sound**
-- meaning: what must the player understand? (where it hits, how big, that it's charging, that it worked or failed)
-- material (pick one that fits the fiction): plasma, fire, embers, smoke, ink, blood, water, ice/glass, crystal, sand/dust, stone/rubble, metal sparks, lightning, light/holy, shadow/void, glitch/digital, paper/runes, petals/leaves, bone, gravity distortion, time (clock shards, afterimages).
-- shape language: spiky/shattered, round/soft, angular/geometric, organic/tendrils, linear/slash, columnar, spiral, grid/hex, scattered motes.
-- motion verb: implode, explode, shatter, ripple, crawl, drip, rise, rain down, orbit, spiral in, stretch, snap, flicker, unfold, bloom, bleed, freeze, rewind, stutter.
-- timing: snappy (2-4 ticks to peak) vs. heavy (slow build, huge payoff) vs. lingering (status), plus a hold or anticipation beat.
-- color story: 1 dominant hue, 1 accent, 1 core highlight (often near-white). Value contrast matters more than hue.
+## 1. Write the signature first (one line per ability)
+**meaning · material · shape · motion · timing · color · sound**
+- meaning: what must the player read? (where it hits, how big, charging, worked/failed)
+- material: plasma, fire, embers, smoke, ink, blood, water, ice/glass, crystal, sand, rubble, sparks, lightning, holy light, void, glitch, runes, petals, bone, gravity, time (clock shards, afterimages).
+- shape: spiky/shattered, soft, geometric, tendrils, slash, column, spiral, hex grid, scattered motes.
+- motion: implode, shatter, ripple, crawl, drip, rise, rain, orbit, stretch, snap, flicker, unfold, bloom, freeze, rewind, stutter.
+- timing: snappy (2-4 ticks to peak), heavy (slow build, huge payoff) or lingering (status), plus an anticipation beat.
+- color: 1 dominant hue, 1 accent, 1 near-white core. Value contrast beats hue.
 
-**Rule: no two abilities in a mod may share the same material + shape + motion.** Compare against the mod's other effects,
-and the last mods you built, before coding. If it reads like a recolor of another effect, redesign it.
+**No two abilities (in this mod or your last mods) share material + shape + motion.** Recolor = redesign.
 
-## 2. Build by lifecycle, one hero layer
-- Phases: **anticipation/telegraph → contact/peak → follow-through → dissipation** (+ lingering status if it means something). The strongest beat lands exactly on the hit and the sound.
-- One layer carries the weight (the hero shape). Everything else supports it, so it can be read in a 1-second glance from 10+ blocks away (silhouette test: would it read in grayscale?).
-- Use contrast, direction, timing and scale before adding particles. Few particles, placed on purpose.
-- Clean up completely: nothing lingers after the effect unless it means something (burning ground = still dangerous).
+## 2. Lifecycle, one hero layer
+telegraph → contact/peak (on the real hit + sound) → follow-through → dissipation. One hero shape carries the read at 10+
+blocks (grayscale silhouette test); the rest supports it. Few particles, placed on purpose. Nothing lingers unless it means
+something (burning ground = still dangerous).
 
-## 3. Reach for the right technique, not the default
-- Textures you DRAW for this effect (`mc vfx-tex` shapes are a start; `pixels vfx <name>` for a unique shape: a specific rune, a claw mark, a cracked-glass star). A custom texture is the fastest way to stop looking generic.
-- Layer types beyond ring and flash: pillar (beams, geysers), beam (lasers aligned to the real ray), slash (arcs that match the swing), billboard flipbooks (frames), sky/screen: post effects, a shader (SHADERS.md), a cutscene beat (CUTSCENES.md).
-- Real objects: block_display/item_display shards, physics blocks (debris, craters), entities you move, light changes, terrain changes (frost spreading over blocks, then reverting).
-- Screen/camera: shake with direction, FOV punch, a brief color grade (post effect) for ultimates only.
-- Sound design is half the effect: layer a whoosh/charge + impact + tail; pitch-shift per variant.
-
-## 4. Variety menu (examples, not templates)
-| ability | weak, generic version | distinct version |
+## 3. The engine: four ways to draw (cheap → fully custom)
+| Way | API | Use for |
 |---|---|---|
-| fire punch | orange ring + particles | a fist-shaped flare that smears along the punch arc, then a scorched handprint decal fades on the block |
-| ice spell | blue ring | frost crawls over the ground in hex tiles toward the target; ice pillars snap up in sequence, then shatter into glass shards |
-| teleport | purple flash | the body stretches into a vertical slit that zips shut; at the destination, an afterimage unfolds outward |
-| heal | green sparkles | petals spiral up from the feet and close into a bud, which blooms with a soft white pulse |
-| lightning | yellow line | branching bolt (midpoint displacement) with a 2-tick pre-flash on the target, ground scorch, ozone sparks crawl on metal blocks |
-| void/black hole | dark sphere | a lensing ring that bends the background (shader) with an accretion disk of debris, actually pulling blocks in |
-| time stop | gray screen | a clock-face sigil cracks across the sky; the world desaturates except the player's effects, and ticking sounds slow down |
+| Layer def (JSON) | `mc vfx <ns>:<id> --layers '[...]'` + textures `mc pixels vfx <name>`; play: `Vfx.play(Vfx.id("ns:id"), Vec3 pos, Vec3 dir, Entity followOrNull)` | fixed-shape effects; edits apply even while playing |
+| Layers built per cast | `Bosses.fx(Vec3 pos, Vec3 dir, Entity follow, Bosses.L(type, texture, key, value, ...)...)` | size/length/color from the real cast (charge, distance) |
+| Own geometry | client class `client/content/<Id>Client.java`: `LevelRenderEvents.COLLECT_SUBMITS.register(<Id>Client::render)`, draw with `VfxClient.late(ctx, poseStack, RenderTypes.eyes(tex), (pose, vc) -> ...)` | anything layers can't do: spikes, tubes, cracks, bodies, lensing |
+| Real things | `Quick.physics(state, pos, vel)`, `Physics.spawn(level, "ns:id", pos, vel)`, `Combat.display(level, pos, item, scale, billboard)`, block edits, `SoundLoops.at/follow` | debris, craters, frost that spreads and reverts, hums |
 
-## 5. Before saying done
-- Watch it in game (`game shot` during the peak frame, and look several times): does each ability read differently from the others at a glance?
-- Spam it: no leaks or leftovers, fine on repeat, and it doesn't drop FPS (`game lag`).
-- Lined up with the real hit ray or swing. Telegraphs come before damage.
-- Ask: "Would a player describe this effect with a different noun than the last one?" If not, redesign it.
+- Layer types: billboard ring pillar beam slash sphere spiral orbit shards particles flash shake sound. Keys (`tools/mc.mjs` header): delay duration size/size_end alpha/alpha_end color/color_end spin frames loops x/y/z → x_end/y_end/z_end, ease out|in|inout, face, pitch, blend add|alpha; beam `fit` = length of `dir`.
+- Own geometry pattern (read `content/AbyssalAscension.java` Fx + `client/content/AbyssalAscensionClient.java`): the server class keeps a static list of live effects (same JVM), the client class draws them camera-relative on the REAL clock (`System.currentTimeMillis()`, keeps animating in `/tick freeze`), removes finished ones. `eyes` = additive glow (fade by darkening; alpha is ignored), `entityTranslucent` = solid-looking. `late` draws after water and clouds.
+- Draw your own textures (`mc pixels vfx`, black = invisible in additive): a specific rune, claw mark or cracked-glass star stops "generic" fastest. Camera: directional shake, FOV punch, post effect (SHADERS.md), cutscene beat (CUTSCENES.md) for ultimates only. Sound is half the effect: charge + impact + tail.
+- Player-facing extras (titles, screen effects, your own geometry) skip on a stage: `if (Stage.isStage(pos)) { Stage.note(pos, "fx <name>"); return; }` (`Vfx.play` does this itself).
+
+## 4. Worked examples (four different mechanics: copy the technique, not the look)
+**A. Geyser: JSON def, telegraph then jet.** Crack ring first (anticipation), the jet 6 ticks later on the sound.
+```bash
+mc pixels vfx frost_mod_crack ... ; mc pixels vfx frost_mod_jet ...     # draw both: jagged crack, streaky jet
+mc vfx frost_mod:geyser --layers '[{"type":"ring","texture":"frost_mod_crack","size":0.3,"size_end":2.5,"duration":8,"blend":"alpha"},
+  {"type":"pillar","texture":"frost_mod_jet","delay":6,"size":0.6,"height":0.5,"height_end":7,"ease":"out","duration":14,"alpha_end":0,"planes":4},
+  {"type":"sound","delay":6,"sound":"frost_mod:geyser_burst"}]'
+```
+```java
+Vec3 at = Combat.ground(p.level(), Combat.aim(p, 20));
+Vfx.play(Vfx.id("frost_mod:geyser"), at, new Vec3(0, 1, 0), null);
+Bosses.job(p, 7, (j, age) -> { if (age == 6) Combat.blast(p, at, 2.5, 9, "moddeus:frost", 1.2); }); // damage lands with the jet
+```
+**B. Ray fitted to the real hit (layers per cast).**
+```java
+Vec3 from = Combat.hand(p), to = Combat.aim(p, 30);
+Bosses.fx(from, to.subtract(from), null,
+    Bosses.L("beam", "frost_mod_ray", "fit", true, "size", 0.3, "size_end", 0.05, "grow", 0.1, "duration", 10, "color", "#bff4ff"),
+    Bosses.L("billboard", "frost_mod_star", "x", to.x - from.x, "y", to.y - from.y, "z", to.z - from.z, "size", 1.6, "size_end", 0, "duration", 8));
+for (LivingEntity e : Combat.enemies(p, to, 1.5)) Combat.damage(e, p, 8, "moddeus:laser");
+```
+**C. Ice spikes snapping up in sequence (own geometry).** Server: `public static List<Spikes> SPIKES` (start ms, from, dir) filled on use. Client:
+```java
+public static void render(LevelRenderContext ctx) {
+    Minecraft mc = Minecraft.getInstance();
+    if (!enabled || mc.level == null) return;
+    Vec3 cp = mc.gameRenderer.mainCamera().position();
+    long now = System.currentTimeMillis();
+    FrostMod.SPIKES.removeIf(s -> now - s.start > 1500);
+    for (FrostMod.Spikes s : FrostMod.SPIKES) {
+        float age = (now - s.start) / 1000f;
+        VfxClient.late(ctx, ctx.poseStack(), RenderTypes.eyes(WHITE), (pose, vc) -> {
+            for (int k = 0; k < 10; k++) {
+                float h = 1.8f * Mth.clamp((age - k * 0.06f) * 6, 0, 1) * Mth.clamp((1.5f - age) * 2, 0, 1); // up one by one, sink at the end
+                Vec3 b = s.from.add(s.dir.scale(1.5 + k)).subtract(cp);
+                for (int i = 0; i < 4; i++) { // 4-sided spike: base corner, next corner, tip, tip
+                    double a0 = i * Math.PI / 2, a1 = a0 + Math.PI / 2;
+                    v(pose, vc, b.x + Math.cos(a0) * .35, b.y, b.z + Math.sin(a0) * .35, 0xFF3A7AC0);
+                    v(pose, vc, b.x + Math.cos(a1) * .35, b.y, b.z + Math.sin(a1) * .35, 0xFF3A7AC0);
+                    v(pose, vc, b.x, b.y + h, b.z, 0xFFE8FBFF); v(pose, vc, b.x, b.y + h, b.z, 0xFFE8FBFF);
+                }
+            }
+        });
+    }
+}
+static void v(PoseStack.Pose p, VertexConsumer vc, double x, double y, double z, int argb) {
+    vc.addVertex(p, (float) x, (float) y, (float) z).setColor(argb).setUv(0.5f, 0.5f).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0xF000F0).setNormal(p, 0, 1, 0);
+}
+```
+(`WHITE` = a small white texture you drew with `mc pixels vfx`; the server damages spike k at tick ~k*1.2 so hits match the geometry.)
+
+**D. Quake: real blocks torn up along a spiral front.**
+```java
+ServerLevel l = (ServerLevel) p.level(); Vec3 c = p.position();
+SoundLoops.at(l, c, "frost_mod:rumble", "quake", 1f, 0.8f, 10);
+Bosses.job(p, 30, (j, age) -> {
+    double r = 1 + age * 0.25, a = age * 2.4;          // front moves out 5 blocks/s on a golden-angle spiral, not a ring
+    BlockPos b = BlockPos.containing(c.add(Math.cos(a) * r, -1, Math.sin(a) * r));
+    BlockState s = l.getBlockState(b);
+    if (!s.isAir()) { l.removeBlock(b, false); Quick.physics(s, Vec3.atCenterOf(b).add(0, 1, 0), new Vec3(0, 0.6, 0)); }
+    if (age == 29) SoundLoops.stop("at:quake");
+});
+```
+
+## 5. Make it unique to this mod (check before done)
+- [ ] Own textures drawn for this mod (no preset shape textures, no other mod's).
+- [ ] Own palette: the mod's dominant/accent/core, not the last mod's purple glow.
+- [ ] Own timing per ability (snappy vs heavy vs lingering differ inside the mod).
+- [ ] Own mechanic: the effect follows the real ray/hit/area, telegraph before damage.
+- [ ] Own sound layers (charge + impact + tail), pitched per ability.
+- [ ] No two abilities share a look; "would a player name this effect with a different noun than the last one?"
+- [ ] Tested on the stage (TESTING.md: report lists every `vfx`/`fx` note), spammed with no leftovers, `game lag` clean.

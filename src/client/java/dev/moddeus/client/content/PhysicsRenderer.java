@@ -107,6 +107,7 @@ public class PhysicsRenderer extends EntityRenderer<PhysicsBlock, PhysicsRendere
 		boolean translucent = s.spec.has("translucent") && s.spec.get("translucent").getAsBoolean();
 		int light = glow ? 0xF000F0 : s.lightCoords;
 		String side = str(s.spec, "texture", null);
+		if (side != null && !side.contains(":") && s.spec.has("namespace")) side = s.spec.get("namespace").getAsString() + ":" + side; // a mod's bare texture name = its own namespace (was moddeus: -> missing texture after mc namespace)
 		String[] faceTex = {str(s.spec, "texture_bottom", side), str(s.spec, "texture_top", side), side, side, side, side};
 		for (int f = 0; f < 6; f++) {
 			final int face = f;

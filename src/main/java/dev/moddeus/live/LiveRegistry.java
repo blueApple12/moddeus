@@ -40,8 +40,24 @@ public final class LiveRegistry {
 
 	private LiveRegistry() {}
 
+	/** Content path -> its mod's namespace (content JSON "namespace", filled by ContentLoader). Lazy: a static added by a swap starts null. */
+	public static volatile Map<String, String> NS;
+	public static Map<String, String> namespaces() { if (NS == null) NS = new java.util.concurrent.ConcurrentHashMap<>(); return NS; }
+
+	/** "ns:path" as given; a bare content path gets its mod's namespace (moddeus when it has none). */
 	public static Identifier id(String path) {
-		return Identifier.fromNamespaceAndPath(Moddeus.MOD_ID, path);
+		return path.indexOf(':') > 0 ? Identifier.parse(path) : Identifier.fromNamespaceAndPath(ns(path), path);
+	}
+
+	/** Namespace of a content path. Derived ids follow their base: x_spawn_egg, long_x, strong_x. */
+	public static String ns(String path) {
+		Map<String, String> m = NS;
+		if (m == null || m.isEmpty()) return Moddeus.MOD_ID;
+		String n = m.get(path);
+		if (n == null && path.endsWith("_spawn_egg")) n = m.get(path.substring(0, path.length() - 10));
+		if (n == null && path.startsWith("long_")) n = m.get(path.substring(5));
+		if (n == null && path.startsWith("strong_")) n = m.get(path.substring(7));
+		return n == null ? Moddeus.MOD_ID : n;
 	}
 
 	public static boolean exists(Registry<?> registry, Identifier id) {
@@ -108,6 +124,12 @@ public final class LiveRegistry {
 	}
 
 	public static synchronized <T> boolean unregister(Registry<T> registry, Identifier id) {
+		// Items/blocks/sounds/entity types are NEVER unregistered live (a missed copy crashed chunk saving; block-state ids
+		// would renumber): they stay registered but unused until the next launch.
+		if (registry == BuiltInRegistries.ITEM || registry == BuiltInRegistries.BLOCK || registry == BuiltInRegistries.SOUND_EVENT || registry == BuiltInRegistries.ENTITY_TYPE) {
+			Moddeus.LOG.info("Kept {} registered until restart (removed content is never unregistered live)", id);
+			return false;
+		}
 		MappedRegistry<T> m = (MappedRegistry<T>) registry;
 		ResourceKey<T> key = ResourceKey.create((ResourceKey<? extends Registry<T>>) registry.key(), id);
 		Map<ResourceKey<T>, Holder.Reference<T>> byKey = (Map) get(m, "byKey");

@@ -26,6 +26,18 @@ code, textures and sounds and swaps them into the running game.
 That's all. Moddeus downloads Node.js by itself if you don't have it. It compiles in game (with the Java compiler bundled
 in the jar), so you don't need a JDK, Gradle or an IDE. Your mods live in `~/Moddeus`.
 
+## Share your mods
+Every mod you make is a project in the **G** screen. Click **Export** and you get two files:
+- `<Name>.jar`: a normal Fabric mod. Anyone can drop it in their `mods` folder next to Fabric API. They don't need
+  Moddeus or Claude (a small Moddeus runtime, without the AI, is inside the jar).
+- `<Name>.moddeus.zip`: the editable version for other Moddeus users. They press **G**, then **Mods → Import** and pick
+  the file (it also finds files in Downloads), and they can keep changing it by talking to their game.
+
+## Your mods are yours
+Mods you create with Moddeus belong to **you**. You hold all rights to them and can share, sell or license them however you
+like. Moddeus claims no rights over anything made with it, and the export doesn't add any license or credit you didn't ask
+for. (Moddeus can't give you rights to other people's characters, brands or music that you put in a mod.)
+
 ## Good to know
 - **It runs on your computer.** Claude Code can read and write files and run commands, and you approve actions in game.
   Use it on a machine and account you're comfortable letting an AI agent work on.

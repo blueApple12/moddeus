@@ -121,13 +121,13 @@ const COLS = 140, ROWS = 45;
 let keySeq = 0;
 
 // New chats default to Opus 5.5, high effort, auto mode (the player's choice); each chat remembers its own.
-function makeSession({ sessionId = null, fork = false, mirror = false, title = '', model = null, effort = null, ultracode = false, mode = null, voice = false, project = null, brain = false, quick = false } = {}) {
+function makeSession({ sessionId = null, fork = false, mirror = false, title = '', model = null, effort = null, ultracode = false, mode = null, voice = false, project = null, brain = false, quick = false, modEffort = null } = {}) {
   const key = 's' + Date.now().toString(36) + (++keySeq);
   const s = {
     key, fork, proc: null, seq: 0, dirty: true, screenDirty: false,
     term: new xterm.Terminal({ cols: COLS, rows: ROWS, allowProposedApi: true, scrollback: 2000 }),
     pending: new Map(), byMsg: new Map(), tools: new Map(),
-    st: { key, title: title || 'New chat', status: 'paused', sessionId, mirror, model: model ?? 'claude-opus-5-5', modelLabel: null, effort: effort ?? 'high', ultracode, mode: mode ?? 'auto', notice: '', items: [], voice: voice || undefined, project: project ?? undefined, brain: brain || undefined, quick: quick || undefined },
+    st: { key, title: title || 'New chat', status: 'paused', sessionId, mirror, model: model ?? 'claude-opus-5-5', modelLabel: null, effort: effort ?? 'high', ultracode, mode: mode ?? 'auto', notice: '', items: [], voice: voice || undefined, project: project ?? undefined, brain: brain || undefined, quick: quick || undefined, modEffort: voice ? undefined : modEffort ?? 'quality' },
   };
   sessions.set(key, s);
   s.origin = sessionId;
@@ -154,7 +154,7 @@ function projectChat(id) {
 
 function persist() {
   fs.writeFileSync(path.join(DIR, 'sessions.json'), JSON.stringify([...sessions.values()].filter(s => !s.test).map(s =>
-    ({ sessionId: s.st.sessionId, mirror: s.st.mirror || undefined, fork: s.fork || s.forkPending || undefined, title: s.st.title, model: s.st.model, effort: s.st.effort, ultracode: s.st.ultracode, mode: s.st.mode, voice: s.st.voice, project: s.st.project, quick: s.st.quick, brain: s.st.brain })), null, 1));
+    ({ sessionId: s.st.sessionId, mirror: s.st.mirror || undefined, fork: s.fork || s.forkPending || undefined, title: s.st.title, model: s.st.model, effort: s.st.effort, ultracode: s.st.ultracode, mode: s.st.mode, voice: s.st.voice, project: s.st.project, quick: s.st.quick, brain: s.st.brain, modEffort: s.st.modEffort })), null, 1));
 }
 
 function push(s, item) {
@@ -237,7 +237,7 @@ function start(s) {
   // Drop markers inherited when the game was launched from another Claude Code session.
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_AGENT|CLAUDE_PROJECT_DIR)/.test(k)));
   log('spawn', s.key, args.join(' '));
-  const p = pty.spawn(claudeExe, args, { name: 'xterm-256color', cols: s.term.cols, rows: s.term.rows, cwd: ROOT, env: { ...env, MODDEUS: '1' } });
+  const p = pty.spawn(claudeExe, args, { name: 'xterm-256color', cols: s.term.cols, rows: s.term.rows, cwd: ROOT, env: { ...env, MODDEUS: '1', MODDEUS_PROJECT: s.st.project || '' } }); // mc undo in a mod chat = that mod only
   s.proc = p;
   p.onData(d => { s.term.write(d); s.screenDirty = true; });
   p.onExit(({ exitCode }) => {
@@ -322,6 +322,15 @@ async function setMode(s, target) {
 }
 
 // ---------- hooks ----------
+// Mods effort (fast/balanced/quality/max): the matching section of tools/mod-effort.md, re-read on every prompt.
+function modEffortBrief(level) {
+  try {
+    const t = fs.readFileSync(path.join(ROOT, 'tools', 'mod-effort.md'), 'utf8');
+    const m = t.split(/^## /m).find(x => x.split(/\r?\n/)[0].trim() === (level || 'quality'));
+    return m ? m.slice(m.indexOf('\n') + 1).trim() : '';
+  } catch { return ''; }
+}
+
 async function onHook(s, ev, b) {
   const st = s.st;
   // mode comes from the terminal footer (modeFromScreen): hooks report "default" even in auto mode
@@ -337,6 +346,7 @@ async function onHook(s, ev, b) {
       push(s, { kind: 'user', text });
       if (st.title === 'New chat' && text && !text.startsWith('/')) { st.title = text.replace(/\s+/g, ' ').slice(0, 60); persist(); metaDirty = true; }
       st.status = 'busy'; st.notice = '';
+      if (!st.voice) return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: modEffortBrief(st.modEffort) } };
       break;
     }
     case 'MessageDisplay': {
@@ -613,10 +623,17 @@ async function sessionCommand(s, m) {
     case 'send': await ready(s); await typeLine(s, m.context ? `${m.text}\n\n<minecraft_context>\n${m.context}\n</minecraft_context>` : m.text); break;
     case 'slash': await ready(s); await slash(s, m.text); break;
     case 'model': s.st.model = m.value; persist(); await ready(s); await slash(s, '/model ' + m.value); break;
+    case 'mod-effort': s.st.modEffort = m.value; persist(); break;
     case 'effort': s.st.effort = m.value; persist(); await ready(s); await slash(s, '/effort ' + m.value); break;
     case 'ultracode': s.st.ultracode = !!m.on; persist(); await ready(s); await slash(s, m.on ? '/effort ultracode' : '/effort ultracode off'); break;
     case 'mode': await ready(s); await setMode(s, m.value); break;
-    case 'interrupt': write(s, '\x1b'); break;
+    case 'interrupt': { // one Esc. Claude Code fires no Stop hook on an interrupt, so the bridge marks it idle itself; Esc twice opens its Rewind dialog
+      if (!s || !['busy', 'waiting'].includes(s.st.status) || Date.now() - (s.lastEsc || 0) < 1500) break;
+      s.lastEsc = Date.now(); write(s, '\x1b');
+      for (const it of s.st.items) if (it.state === 'pending') it.state = 'denied';
+      s.pending.clear(); s.st.status = 'idle'; s.st.notice = ''; push(s, { kind: 'system', text: 'Stopped' });
+      break;
+    }
     case 'permission': s.pending.get(m.id)?.({ behavior: m.behavior, always: m.always, message: m.message, answers: m.answers }); break;
     case 'clear': await ready(s); await slash(s, '/clear'); break;
     case 'restart': kill(s); await sleep(500); if (m.fresh) { s.st.sessionId = null; s.st.items = []; s.st.title = 'New chat'; } start(s); break;

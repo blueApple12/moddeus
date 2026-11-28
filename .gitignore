@@ -5,6 +5,7 @@ run/
 *.log
 node_modules/
 .runtime/
+exports/
 tools/lessons.md
 tools/buddy-mcp.json
 *.bak

@@ -139,7 +139,9 @@ public final class Gens {
 		for (String id : ids) {
 			Map<String, Path> files = files(id);
 			if (files.isEmpty()) { off(id); handled.addAll(changed.stream().filter(n -> id.equals(owner(n))).toList()); continue; }
-			if (files.keySet().stream().anyMatch(loadedByCore::contains)) continue; // core code uses the originals: redefine instead
+			// core code uses the originals: redefine instead. But a mod ALREADY running as generations keeps them: a stray load of the
+			// original name (a snippet, reflection) made every later change of that mod fall back to redefinition and wait for a restart.
+			if (!manages(id) && files.keySet().stream().anyMatch(loadedByCore::contains)) continue;
 			try {
 				if (load(id, files)) for (String n : changed) if (id.equals(owner(n))) handled.add(n);
 			} catch (Throwable t) {
@@ -256,7 +258,7 @@ public final class Gens {
 	/** Server thread: carry state over, clear guards, run the new generation's hooks, retire the old one's listeners. */
 	static void activate(Mod m, Mod old, long t0, long defined) {
 		try {
-			if (old != null) copyStatics(old, m);
+			if (old != null && !fresh().remove(m.id)) copyStatics(old, m);
 			mods().put(m.id, m);
 			synchronized (Gens.class) { if (pending != null) { var pc = pending.remove(m.id + "#" + m.gen); if (pc != null) m.counts.putAll(pc); } }
 			int hooks = 0;
@@ -278,10 +280,12 @@ public final class Gens {
 		}
 	}
 
-	/** Same-named static fields keep their values (not finals; not when the type mentions a mod class). */
+	/** Same-named static fields keep their values (not finals; not when the declared type mentions a mod class). Old-generation
+	 *  objects in them (also inside JDK containers) are rebuilt as the new generation's classes by {@link GenMigrator}. */
 	static void copyStatics(Mod old, Mod m) {
 		Map<String, Class<?>> oldByOrig = new HashMap<>();
 		for (Class<?> c : old.classes) oldByOrig.put(orig(c.getName()), c);
+		GenMigrator mig = new GenMigrator(old.classes, m.classes);
 		for (Class<?> nc : m.classes) {
 			Class<?> oc = oldByOrig.get(orig(nc.getName()));
 			if (oc == null || nc.isInterface()) continue;
@@ -294,7 +298,13 @@ public final class Gens {
 					if (!of.getGenericType().getTypeName().equals(nf.getGenericType().getTypeName())) continue;
 					of.setAccessible(true); nf.setAccessible(true);
 					Object v = of.get(null);
-					if (v != null && v.getClass().getName().contains("__g")) continue;
+					// Old-generation objects (also inside List<Object>/Map<UUID,Object>/Object[]) must become new-generation ones:
+					// the new code casts them to its own classes -> ClassCastException in a server tick crashed the world once
+					// (Brickjaw JOBS held BrickFight__g32, cast to VillainKit__g33$Fight). Can't rebuild -> the field starts fresh.
+					long f0 = System.nanoTime(); try { v = mig.fix(v); }
+					catch (Throwable t) { Moddeus.LOG.info("Gens: {}.{} starts fresh (old-generation objects: {})", orig(nc.getSimpleName()), nf.getName(), t.toString()); continue; }
+					long fms = (System.nanoTime() - f0) / 1_000_000;
+					if (fms > 30) Moddeus.LOG.warn("Gens: slow carry-over {}.{} took {} ms ({} objects walked)", orig(nc.getSimpleName()), nf.getName(), fms, 200_000 - mig.budget);
 					nf.set(null, v);
 				} catch (NoSuchFieldException ignored) {
 				} catch (Throwable t) { Moddeus.LOG.debug("state copy {}.{}: {}", nc.getSimpleName(), nf.getName(), t.toString()); }
@@ -308,14 +318,39 @@ public final class Gens {
 		int n = 0;
 		for (Class<?> c : classes) for (Method mt : c.getDeclaredMethods()) {
 			if (!mt.isAnnotationPresent(a) || !Modifier.isStatic(mt.getModifiers()) || mt.getParameterCount() != 0) continue;
+			long h0 = System.nanoTime();
 			try { mt.setAccessible(true); mt.invoke(null); n++; }
 			catch (Throwable e) {
 				Throwable c2 = e instanceof InvocationTargetException ite ? ite.getCause() : e;
 				Moddeus.LOG.error("@{} {}.{} failed", a.getSimpleName(), orig(c.getName()), mt.getName(), c2);
 				Minecraft.getInstance().execute(() -> HotReloader.say("§c@" + a.getSimpleName() + " " + orig(c.getSimpleName()) + "." + mt.getName() + " failed: " + c2));
 			}
+			long hms = (System.nanoTime() - h0) / 1_000_000;
+			if (hms > 30) Moddeus.LOG.warn("Gens: slow @{} {}.{} took {} ms (blocks the server thread on every swap)", a.getSimpleName(), orig(c.getName()), mt.getName(), hms);
 		}
 		return n;
+	}
+
+	// ---------------------------------------------------------------- world switch
+	// Mod statics are per JVM, but their state (owned powers, saved files, test dummies, levels held in lists) belongs to ONE world.
+	// Carrying it into the next world froze the server once (a power ticked a test dummy whose level's server was gone: getChunk
+	// waited forever on the dead server thread). So: world closing = every running mod switched off (@OnUnload saves + cleans
+	// while the levels still exist); next world = a FRESH generation (static initializers run again, nothing copied over).
+	static Set<String> fresh;
+	static Set<String> fresh() { if (fresh == null) fresh = ConcurrentHashMap.newKeySet(); return fresh; }
+	static Set<String> closed;
+	public static void worldClosing(net.minecraft.server.MinecraftServer s) {
+		if (closed == null) closed = ConcurrentHashMap.newKeySet();
+		for (Mod m : new ArrayList<>(mods().values())) if (m.on && !Projects.disabled(m.id)) {
+			try { off(m.id); closed.add(m.id); } catch (Throwable t) { Moddeus.LOG.error("world close: mod {} off", m.id, t); }
+		}
+		if (!closed.isEmpty()) Moddeus.LOG.info("World closed: switched off {}", closed);
+	}
+	public static void worldOpened(net.minecraft.server.MinecraftServer s) {
+		if (closed == null || closed.isEmpty()) return;
+		List<String> ids = new ArrayList<>(closed); closed.clear();
+		for (String id : ids) { fresh().add(id); on(id); }
+		Moddeus.LOG.info("World opened: fresh generation of {}", ids);
 	}
 
 	/** Switch a mod off: its @OnUnload hooks, listeners pass, guards cleared (G screen Off, mc remove). */

@@ -98,7 +98,7 @@ public final class ModGui {
 
 		@Override public boolean keyPressed(KeyEvent e) {
 			ui.keys.add(e.key());
-			if (e.key() == 256) { onClose(); return true; } // Esc
+			if (e.key() == com.mojang.blaze3d.platform.InputConstants.KEY_ESCAPE) { onClose(); return true; } // Esc
 			return true;
 		}
 
@@ -117,7 +117,7 @@ public final class ModGui {
 			Ui ui = hudUi().computeIfAbsent(e.getKey(), k -> new Ui());
 			ui.begin(g, mc.font, -1, -1, g.guiWidth(), g.guiHeight(), true);
 			try { e.getValue().draw(ui); }
-			catch (Throwable t) { huds.remove(e.getKey()); Moddeus.LOG.error("HUD {} failed (removed)", e.getKey(), t); HotReloader.say("§cHUD " + e.getKey() + " failed: " + t); }
+			catch (Throwable t) { huds.remove(e.getKey()); Moddeus.LOG.error("HUD {} failed (removed)", e.getKey(), t); try { HotReloader.say("§cHUD " + e.getKey() + " failed: " + t); } catch (Throwable ignored) {} } // runtime jar: no HotReloader
 			ui.end();
 		}
 	}

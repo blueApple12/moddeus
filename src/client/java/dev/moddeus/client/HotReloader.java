@@ -1,5 +1,8 @@
 package dev.moddeus.client;
 
+import java.util.concurrent.CompletableFuture;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import dev.moddeus.Moddeus;
 import dev.moddeus.live.LiveRegistry;
 import dev.moddeus.live.OnReload;
@@ -65,10 +68,56 @@ public final class HotReloader {
 		t.start();
 	}
 
+	/** GameApi "build": queued here so EVERY class swap happens on this one thread (two threads redefining at once, or
+	 *  redefining classes the calling thread is running, crashed the JVM once). */
+	public static JsonObject build(boolean withJava) throws Exception {
+		CompletableFuture<JsonObject> f = new CompletableFuture<>();
+		requests().add(new Object[]{withJava, f});
+		return f.get(120, java.util.concurrent.TimeUnit.SECONDS);
+	}
+
+	static java.util.concurrent.ConcurrentLinkedQueue<Object[]> requests;
+	static synchronized java.util.concurrent.ConcurrentLinkedQueue<Object[]> requests() {
+		if (requests == null) requests = new java.util.concurrent.ConcurrentLinkedQueue<>();
+		return requests;
+	}
+
+	/** One in-game build (req = {java, future}, or null for an auto-build on save) + its swap. */
+	@SuppressWarnings("unchecked")
+	static void runBuild(Object[] req) {
+		JsonObject r;
+		try {
+			Set<Path> swap = new java.util.LinkedHashSet<>();
+			r = dev.moddeus.client.game.SourceBuild.build(req == null || (Boolean) req[0], swap);
+			long t = System.nanoTime();
+			if (!swap.isEmpty()) {
+				SwapHitch.mark(swap.size() + " files: " + swap.stream().map(p -> p.getFileName().toString()).limit(3).toList());
+				applyNow(swap);
+				SwapHitch.swapped(System.nanoTime() - t);
+			}
+			r.addProperty("swapMs", (System.nanoTime() - t) / 1_000_000);
+		} catch (Throwable e) {
+			r = new JsonObject();
+			r.addProperty("ok", false);
+			JsonArray errs = new JsonArray();
+			errs.add(String.valueOf(e));
+			r.add("errors", errs);
+			Moddeus.LOG.warn("in-game build failed", e);
+		}
+		if (req != null) { ((CompletableFuture<JsonObject>) req[1]).complete(r); return; }
+		dev.moddeus.client.game.SourceBuild.lastAuto = r;
+		if (!r.get("ok").getAsBoolean()) Moddeus.LOG.info("Auto-build: compile errors (waiting for the next save): {}", r.get("errors"));
+		else if (r.get("changed").getAsInt() > 0) Moddeus.LOG.info("Auto-build: {} compiled, {} files, build {} ms (javac {}) + swap {} ms", r.get("compiled"), r.get("changed"), r.get("ms"), r.get("javacMs"), r.get("swapMs"));
+	}
+
 	private static void loop() {
-		while (true) {
+		for (int tick = 0; ; tick++) {
 			try {
-				Thread.sleep(500);
+				Thread.sleep(5); // SourceBuild.due() blocks up to ~45 ms on file events itself
+				Object[] req;
+				while ((req = requests().poll()) != null) runBuild(req);
+				if (dev.moddeus.client.game.SourceBuild.due(tick % 10 == 0)) runBuild(null);
+				if (tick % 10 != 0) continue; // Gradle / external output: every 500 ms as before
 				Set<Path> changed = scan();
 				if (changed.isEmpty()) continue;
 				Set<Path> more; // debounce: Gradle writes files over a few hundred ms
@@ -121,11 +170,26 @@ public final class HotReloader {
 		return changed;
 	}
 
-	private static void apply(Set<Path> changed) {
-		// One build = one swap: Gradle writes main classes, then client classes ~1-2s later. Each swap is a
-		// stop-the-world redefinition + JIT deopt (the lag), so wait until the output has been quiet for 1.5s.
+	/** SourceBuild wrote exactly these files: swap them now (no polling, no debounce, no quiet wait). */
+	public static void applyNow(Set<Path> files) {
+		Set<Path> changed = new HashSet<>(files);
+		for (Path p : changed) {
+			try { if (Files.exists(p)) stamps.put(p, Files.getLastModifiedTime(p).toMillis()); else stamps.remove(p); } catch (Exception ignored) {}
+		}
+		apply(changed, false);
+	}
+
+	private static void apply(Set<Path> changed) { apply(changed, true); }
+
+	private static void apply(Set<Path> changed, boolean wait) {
+		synchronized (HotReloader.class) { applyLocked(changed, wait); }
+	}
+
+	private static void applyLocked(Set<Path> changed, boolean wait) {
+		// Gradle path only: one build = one swap. Gradle writes main classes, then client classes ~1-2s later, and each swap
+		// is a stop-the-world redefinition, so wait until its output has been quiet for 1.5s. SourceBuild skips this.
 		long quietSince = System.currentTimeMillis();
-		while (System.currentTimeMillis() - quietSince < 1500) {
+		while (wait && System.currentTimeMillis() - quietSince < 1500) {
 			try { Thread.sleep(250); } catch (InterruptedException ie) { break; }
 			Set<Path> more = scan();
 			if (!more.isEmpty()) { changed.addAll(more); quietSince = System.currentTimeMillis(); }
@@ -192,7 +256,16 @@ public final class HotReloader {
 					defs.add(new ClassDefinition(c, bytes));
 					redefined.add(c);
 				}
-				if (inst != null) redefineFast(inst, defs.toArray(ClassDefinition[]::new));
+				if (inst != null && !defs.isEmpty()) {
+					List<ClassDefinition> later = splitPending(defs); // schema changes + bodies that need them: next restart
+					defs.removeAll(later);
+					for (ClassDefinition d : later) redefined.remove(d.getDefinitionClass());
+					if (!later.isEmpty()) deferred(later, "fields/methods changed");
+					redefineFast(inst, defs.toArray(ClassDefinition[]::new));
+				}
+			} catch (UnsupportedOperationException e) { // a schema change the check missed: whole batch waits for the restart
+				deferred(defs, String.valueOf(e.getMessage()));
+				redefined.clear();
 			} catch (Throwable e) {
 				Moddeus.LOG.error("Hotswap FAILED", e);
 				String msg = e.toString();
@@ -251,7 +324,7 @@ public final class HotReloader {
 		// commands, flags) just run on the server thread while the game keeps rendering (no ~1-tick freeze).
 		boolean registry = ct || touchesRegistry(hookTargets);
 		if (sp == null) work.run();
-		else if (registry) sp.executeBlocking(work);
+		else if (registry) sp.executeBlocking(PauseProfiler.wrap(work, ct ? "content" : "hooks")); // slow pause logs its cause
 		else { sp.execute(work); hooksBox[0] = hookTargets.size(); }
 		Moddeus.LOG.info("Hotswap timing: hooks+content {} ms ({})", (System.nanoTime() - h0) / 1_000_000, registry ? "game paused meanwhile" : "async");
 		int hooks = hooksBox[0];
@@ -324,37 +397,57 @@ public final class HotReloader {
 	}
 
 	// ---------------------------------------------------------------- fast swap (no lambdas here: may run as old code)
-	static Object wb;
-	static java.lang.reflect.Method wbSet;
-	static boolean wbTried;
 	public static int fastSwaps, fullSwaps;
 
 	/**
-	 * Enhanced redefinition (needed to add fields/methods) walks the whole heap: 200-800 ms frozen. Plain HotSpot
-	 * redefinition of method bodies takes ~1 ms. So: try plain first (flag off through WhiteBox); a schema change fails
-	 * instantly with UnsupportedOperationException, then redo it enhanced. Without WhiteBox (old launch): enhanced only.
+	 * Standard JVMTI redefinition only (method bodies, ~1 ms + a global ~60-80 ms safepoint). A change that adds/removes
+	 * fields or methods throws UnsupportedOperationException and the caller defers it to the next restart. Never DCEVM
+	 * (-XX:+AllowEnhancedClassRedefinition): its replaced classes crashed the JVM 3 times in G1 remark class unloading
+	 * (jvm.dll+0x81ec5a, VM Thread, G1PauseRemark), killing the world session.
 	 */
 	static void redefineFast(java.lang.instrument.Instrumentation inst, ClassDefinition[] defs) throws Exception {
 		if (defs.length == 0) return;
-		if (!wbTried) {
-			wbTried = true;
-			try {
-				Class<?> c = Class.forName("jdk.test.whitebox.WhiteBox", true, null);
-				wb = c.getField("WB").get(null);
-				wbSet = c.getMethod("setBooleanVMFlag", String.class, boolean.class);
-			} catch (Throwable t) { wb = null; Moddeus.LOG.info("Hotswap: no WhiteBox ({}), every swap is a full redefinition", t.toString()); }
-		}
-		if (wb != null) {
-			boolean schema = false;
-			wbSet.invoke(wb, "AllowEnhancedClassRedefinition", false);
-			try { inst.redefineClasses(defs); }
-			catch (UnsupportedOperationException e) { schema = true; }
-			finally { wbSet.invoke(wb, "AllowEnhancedClassRedefinition", true); }
-			if (!schema) { fastSwaps++; Moddeus.LOG.info("Hotswap: fast redefinition (bodies only)"); return; }
-		}
-		fullSwaps++;
-		Moddeus.LOG.info("Hotswap: full redefinition (new/removed fields or methods)");
 		inst.redefineClasses(defs);
+		fastSwaps++;
+	}
+
+	/** Core classes whose new version changes fields/methods: they load at the next restart. While any are pending, all core swaps wait (a body calling a pending new method would throw NoSuchMethodError). */
+	public static Set<String> pendingRestart;
+
+	/** Which of these must wait for a restart: their own fields/methods changed, or they use a member only a waiting class has. */
+	static List<ClassDefinition> splitPending(List<ClassDefinition> defs) {
+		if (pendingRestart == null) pendingRestart = new java.util.LinkedHashSet<>();
+		Set<String> pend = new HashSet<>(pendingRestart);
+		List<ClassDefinition> wait = new ArrayList<>();
+		for (ClassDefinition d : defs) {
+			Class<?> c = d.getDefinitionClass();
+			if (SwapCheck.schemaChanged(c, d.getDefinitionClassFile())) { wait.add(d); pend.add(c.getName()); }
+			else if (pend.remove(c.getName())) { pendingRestart.remove(c.getName()); Moddeus.LOG.info("Hotswap: {} is back to its live shape, swaps again", c.getSimpleName()); } // the loop below re-checks what it uses
+		}
+		for (boolean grew = true; grew; ) { // bodies calling into waiting classes' new members wait too
+			grew = false;
+			for (ClassDefinition d : defs) {
+				if (wait.contains(d)) continue;
+				List<String> miss = SwapCheck.missing(d.getDefinitionClassFile(), pend, d.getDefinitionClass().getClassLoader());
+				if (!miss.isEmpty()) { wait.add(d); pend.add(d.getDefinitionClass().getName()); grew = true; Moddeus.LOG.info("Hotswap: {} waits (uses {})", d.getDefinitionClass().getSimpleName(), miss); }
+			}
+		}
+		return wait;
+	}
+
+	static void deferred(List<ClassDefinition> defs, String why) {
+		if (pendingRestart == null) pendingRestart = new java.util.LinkedHashSet<>();
+		for (ClassDefinition d : defs) pendingRestart.add(d.getDefinitionClass().getName());
+		fullSwaps++;
+		String msg = "Core change waits for the next restart (" + why + "): " + pendingRestart;
+		Moddeus.LOG.warn("Hotswap deferred: {}", msg);
+		Minecraft.getInstance().execute(new Deferred(msg));
+	}
+
+	static final class Deferred implements Runnable {
+		final String msg;
+		Deferred(String msg) { this.msg = msg; }
+		public void run() { say("\u00a76" + msg); }
 	}
 
 	/** Datapack-mod resource packs (run/resourcepacks/<Id>-RP): their edits light-reload too (no F3+T loading screen). */

@@ -49,7 +49,9 @@ loom {
 	}
 	runs {
 		client {
-			vmArg '-XX:+AllowEnhancedClassRedefinition'
+			// never -XX:+AllowEnhancedClassRedefinition (DCEVM): its replaced classes crashed the JVM 3x in G1 remark; core schema changes wait for a restart
+			vmArg '-XX:ReservedCodeCacheSize=512m' // many swaps = many JIT'd versions; a full code cache disables the JIT (4 FPS)
+			// never -XX:-ClassUnloading: JDK 21+ frees JIT code only when classes unload, so the code cache filled and the JIT stopped
 			vmArg '-XX:+UnlockDiagnosticVMOptions'
 			vmArg '-XX:+WhiteBoxAPI'
 			vmArg "-Xbootclasspath/a:${file('build/agent/whitebox.jar').absolutePath}"
@@ -81,7 +83,24 @@ def workspaceZip = tasks.register('workspaceZip', Zip) {
 	from('.claude/skills') { into '.claude/skills' }
 	from('dist/workspace')
 }
-jar { from(workspaceZip) }
+// Moddeus RUNTIME: what exported mods embed (jar-in-jar, same mod id "moddeus", version <v>-runtime, so a full Moddeus
+// install always wins and several exported mods share one copy). Core runtime only: no AI, chat, bridge, game API,
+// hot reload, and no mod project classes (those go into each exported mod's own jar: tools/share.mjs exportJar).
+def runtimeList = file('src/runtime/include.txt').readLines().collect { it.trim() }.findAll { it && !it.startsWith('#') }
+def runtimeIn = runtimeList.findAll { !it.startsWith('!') }, runtimeOut = runtimeList.findAll { it.startsWith('!') }.collect { it.substring(1) }
+def runtimeJar = tasks.register('runtimeJar', Jar) {
+	dependsOn 'classes', 'clientClasses'
+	archiveFileName = 'moddeus-runtime.jar'
+	destinationDirectory = layout.buildDirectory.dir('runtime')
+	from(sourceSets.main.output.classesDirs) { include runtimeIn; exclude runtimeOut }
+	from(sourceSets.client.output.classesDirs) { include runtimeIn; exclude runtimeOut }
+	from('src/main/resources') { include runtimeIn; exclude runtimeOut }
+	def version = project.version
+	inputs.property 'version', version
+	from('src/runtime') { exclude 'include.txt'; filesMatching('fabric.mod.json') { expand 'version': version } }
+	from('LICENSE')
+}
+jar { from(workspaceZip); from(runtimeJar) { into 'META-INF/moddeus' } } // portable exports take the runtime from here
 
 processResources {
 	def version = project.version

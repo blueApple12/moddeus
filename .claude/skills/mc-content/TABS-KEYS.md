@@ -1,7 +1,8 @@
 # Creative tabs + key binds (every mod)
 
 ## Creative tab: where the player finds your stuff
-Every moddeus item is always in the "Moddeus" catalog tab. On top of that, choose:
+There is no "Moddeus" catalog tab: content without a tab shows only in search. A mod tab lists ALL the mod's content
+(items, blocks, spawn eggs, every potion form, enchanted books), live. Choose:
 - **Small / single thing** (one sword, one food, one block): put it in the fitting VANILLA tab. An emerald sword goes in
   combat, not its own tab (unless the player asked for one).
   `--tab combat | tools | food | building | colored | natural | functional | redstone | ingredients | spawn_eggs`

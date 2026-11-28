@@ -24,7 +24,8 @@ public class TalkScreen extends Screen {
 
 	@Override
 	public boolean keyPressed(KeyEvent e) {
-		if ((e.key() == 257 || e.key() == 335) && !box.getValue().isBlank()) { // Enter / keypad Enter
+		// 26.3 key codes are SDL scancodes (Enter = 40), not GLFW (257): always use InputConstants
+		if ((e.key() == com.mojang.blaze3d.platform.InputConstants.KEY_RETURN || e.key() == com.mojang.blaze3d.platform.InputConstants.KEY_NUMPADENTER) && !box.getValue().isBlank()) {
 			AvatarFeed.talk(box.getValue().strip());
 			onClose();
 			return true;

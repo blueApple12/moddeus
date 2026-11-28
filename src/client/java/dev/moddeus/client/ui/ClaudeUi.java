@@ -152,6 +152,7 @@ public final class ClaudeUi {
 	public static String keyName() { return openKey == null ? "K" : openKey.getTranslatedKeyMessage().getString(); }
 
 	static void hud(GuiGraphicsExtractor g) {
+		dev.moddeus.client.SwapHitch.frame();
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.gui.screen() instanceof ClaudeScreen) return;
 		if (dev.moddeus.client.content.AvatarFeed.visible) return; // Claude's body is on screen: its bubble shows this

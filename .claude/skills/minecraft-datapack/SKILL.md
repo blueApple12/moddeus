@@ -11,7 +11,8 @@ description: "Create, edit, and debug vanilla Minecraft 26.x and 1.21.x datapack
 - Required: `data/<ns>/function/uninstall.mcfunction` that removes everything the pack added (scoreboards, attribute modifiers, tags, bossbars, effects, its entities). Off in the G screen runs it before `/datapack disable`; On re-enables and `load` runs again.
 - Apply: `node tools/mc.mjs game cmd reload` (instant ~2 ms when only .mcfunction files changed; tags/advancements/recipes/new packs = full reload ~300 ms, so batch those edits); then `node tools/mc.mjs game log` and look for "Failed to load" / "Couldn't parse" (one bad file disables the pack). Each reload is an undo step (`mc undo <ModId>`).
 - Creative tab + key binds: `moddeus.json` next to pack.mcmeta (`tab`, `icon`, `items` as /give strings, `keys` [{name, key, function}]), see `.claude/skills/mc-content/TABS-KEYS.md`. Applies on `game cmd reload`.
-- Verify in the live world: `game cmd` (e.g. `function <ns>:test`, `scoreboard players list`), `game shot`.
+- Vanilla commands only: Moddeus has no slash commands of its own (no /vfx, /bossattack, /soundloop, /coins, /shop, /toast, /skyevent...). Something vanilla can't do = a Java mod (skill mc-content), not a datapack call.
+- Verify on your private stage, not the player: `mc game stage <ModId>`, then `game run 'print(Stage.of("<ModId>").cmd("function <ns>:test"));'` (scoreboards the same way), `game stage <ModId> clear` (mc-content TESTING.md).
 
 Inspect `pack.mcmeta` and the target Minecraft version before editing. Preserve
 an existing target unless migration is requested; metadata numbers alone do not

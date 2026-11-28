@@ -28,14 +28,19 @@ public final class LightReload {
 	/** Call on the render thread. */
 	public static void run(Minecraft mc) {
 		if (busy) return; // the running reload reads files fresh; a new change triggers another pass afterwards
+		dev.moddeus.live.PackNamespaces.refresh(); // a new mod namespace (assets/<ns>) is visible from now on
 		List<String> changed = new ArrayList<>(pending);
 		pending.clear();
+		if (SoundFast.handle(mc, changed)) return; // sound-only edits: swapped into the live SoundManager, no OpenAL restart
 		boolean sounds = changed.stream().anyMatch(p -> p.contains("/sounds") || p.endsWith("sounds.json"));
 		// Lag: only block/item atlas or model changes move chunk UVs (full chunk rebuild); VFX/entity textures and lang
 		// need just their own listener.
-		rebuildChunks = changed.isEmpty() || changed.stream().anyMatch(p -> p.contains("textures/block") || p.contains("textures/item") || p.contains("/models/") || p.contains("/blockstates/") || p.contains("/atlases/"));
-		boolean texOnly = !changed.isEmpty() && changed.stream().noneMatch(p -> p.contains("/shaders/") || p.contains("/post_effect/")) && changed.stream().allMatch(p -> p.contains("textures/vfx/") || p.contains("textures/entity/") || p.contains("textures/gui/"));
+		// 26.3: items have their own atlas (atlases/items.json); chunk meshes only use the blocks atlas, so item edits never rebuild chunks
+		rebuildChunks = changed.isEmpty() || changed.stream().anyMatch(p -> p.contains("textures/block") || p.contains("models/block") || p.contains("/blockstates/") || p.contains("atlases/blocks"));
+		boolean texOnly = !changed.isEmpty() && changed.stream().noneMatch(p -> p.contains("/shaders/") || p.contains("/post_effect/")) && changed.stream().allMatch(p -> p.contains("textures/vfx/") || p.contains("textures/entity/") || p.contains("textures/gui/") || p.contains("/lang/")); // + lang: still no atlas restitch
+		if (Pixels.redraw(mc, changed)) return; // only pixels of existing sprites changed: written straight into the atlas, no reload
 		Moddeus.LOG.info("Light reload for {}", changed.size() > 6 ? changed.subList(0, 6) + "..." : changed);
+		boolean lang = changed.isEmpty() || changed.stream().anyMatch(p -> p.contains("/lang/"));
 		boolean shaders = changed.stream().anyMatch(p -> p.contains("/shaders/") || p.contains("/post_effect/"));
 		boolean langOnly = !changed.isEmpty() && changed.stream().allMatch(p -> p.contains("/lang/"));
 		long t0 = System.nanoTime();
@@ -48,8 +53,9 @@ public final class LightReload {
 				String n = l.getClass().getSimpleName();
 				if (n.equals("ShaderManager") && shaders) { keep.add((PreparableReloadListener) l); continue; } // shader / post effect edits hot-reload
 				if (SKIP.contains(n) || (!sounds && n.equals("SoundManager"))) continue;
-				if (texOnly && !n.equals("TextureManager")) continue;
+				if (texOnly && !n.equals("TextureManager") && !n.equals("LanguageManager")) continue;
 				if (langOnly && !n.equals("LanguageManager")) continue;
+				if (!lang && n.equals("LanguageManager")) continue; // ~20 ms on the render thread, only needed for lang edits
 				keep.add((PreparableReloadListener) l);
 			}
 			busy = true;

@@ -8,6 +8,9 @@
 //   quick <action> [args]          instant prebuilt action, no compile (launch, safe_landing, tame_hostiles, ...); no args = list
 //   eval|run "<java>"              run Java in the live game: compiled in memory, ~0.3s (--gradle = old hotswap path)
 //                                In scope: server, player, level, mc (client), print(obj). Expression or statements.
+//   stage <id> [report|clear|wait <ticks>|list]   private test stage far from the player (waits until loaded); Java: Stage.of("<id>")
+//   studio entity|item|armor|block <id> [--angles 4] [--anim idle|walk|attack|hurt|death|pose1] [--t 0.5] [--pose stand,crouch,swim]
+//          [--view gui,fp,hand,ground] [--nbt '{..}' entity NBT / item components] [--pitch 15] [--size 384]   offscreen renders -> contact sheet PNG (no camera use)
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -40,17 +43,29 @@ const EVAL_IMPORTS = ['java.util.*', 'net.minecraft.core.*', 'net.minecraft.core
   'net.minecraft.world.item.*', 'net.minecraft.world.item.enchantment.*', 'net.minecraft.world.entity.*', 'net.minecraft.world.level.block.*',
   'net.minecraft.network.chat.Component', 'net.minecraft.resources.*', 'net.minecraft.server.MinecraftServer', 'net.minecraft.server.level.*',
   'net.minecraft.client.Minecraft', 'net.minecraft.world.phys.*', 'net.minecraft.world.level.*', 'net.minecraft.world.entity.player.*',
-  'net.minecraft.world.effect.*', 'net.minecraft.sounds.*', 'net.minecraft.core.particles.*', 'net.minecraft.world.entity.monster.*', 'net.minecraft.world.entity.projectile.*'];
+  'net.minecraft.world.effect.*', 'net.minecraft.sounds.*', 'net.minecraft.core.particles.*', 'net.minecraft.world.entity.monster.*', 'net.minecraft.world.entity.projectile.*',
+  'net.minecraft.world.level.block.state.*', 'net.minecraft.world.entity.item.*', 'net.minecraft.world.level.levelgen.Heightmap', 'net.minecraft.server.permissions.*', 'dev.moddeus.live.Builds', 'dev.moddeus.live.Stage',
+  // engine APIs (Moddeus has no slash commands: snippets call these directly)
+  'dev.moddeus.content.Vfx', 'dev.moddeus.content.Physics', 'dev.moddeus.live.Combat', 'dev.moddeus.live.Bosses', 'dev.moddeus.live.SoundLoops', 'dev.moddeus.live.Systems', 'dev.moddeus.live.WorldFeel'];
+
+/** `import a.b.C;` lines of a snippet go above the class: inside the method body javac says "illegal start of expression". */
+function splitImports(code) {
+  const imports = [];
+  const body = String(code).replace(/^[ \t]*import\s+(static\s+)?[\w.]+(\.\*)?\s*;[ \t]*$/gm, m => { imports.push(m.trim()); return ''; });
+  return { imports: imports.join('\n'), code: body };
+}
 
 /** Fast path: the game compiles the snippet in memory and runs it now (no Gradle, no files, no hotswap). */
-async function runJava(code) {
+async function runJava(snippet, capture = false) {
+  const { imports, code } = splitImports(snippet);
   const name = 'R' + Date.now().toString(36);
-  const body = /;\s*$|[{}]/.test(code.trim()) ? code : `print(${code});`;
+  const body = (/;\s*$|[{}]/.test(code.trim()) ? code : `print(${code});`).replace(/\breturn\s*;/g, 'return OUT.toString();'); // snippet = body of a String method
   const src = `package dev.moddeus.eval;
 
 ${EVAL_IMPORTS.map(i => 'import ' + i + ';').join('\n')}
 import dev.moddeus.live.Quick;
 import static dev.moddeus.live.Quick.*;
+${imports}
 
 public final class ${name} {
 	static final StringBuilder OUT = new StringBuilder();
@@ -76,7 +91,9 @@ ${body}
   try { info = JSON.parse(fs.readFileSync(path.join(ROOT, 'run/moddeus/game.json'), 'utf8')); } catch { die('game not running'); }
   const r = await fetch(`http://127.0.0.1:${info.port}/run?t=${info.token}`, { method: 'POST', body: JSON.stringify({ name, src }) }).then(x => x.json()).catch(() => null);
   if (r === null || (r.error && /unknown endpoint|no-compiler/.test(r.error))) return false; // old game build: use the Gradle path
-  if (r.error) { console.error('game: ' + r.error.replace(/^java\.lang\.IllegalArgumentException: /, '')); process.exitCode = 1; return true; }
+  if (r.error && capture) die(r.error);
+  if (r.error) { const e = r.error.replace(/^java\.lang\.IllegalArgumentException: /, ''), h = (await import('./runhints.mjs')).hints(e); console.error('game: ' + e + (h ? '\n' + h : '')); process.exitCode = 1; return true; }
+  if (capture) return String(r);
   console.log(String(r).trimEnd() || '(no output; use print(...))');
   return true;
 }
@@ -84,9 +101,11 @@ ${body}
 async function evalJava(code) {
   if (!code) die('usage: game eval "<java>"');
   if (!process.argv.includes('--gradle') && await runJava(code)) return;
+  if (!process.argv.includes('--gradle')) die('game run failed: is the game running? (no Gradle fallback: Gradle under the live game breaks builds; pass --gradle to force the old path)');
   if ((await import('./build.mjs')).portable(ROOT)) die('game run failed (portable mode has no Gradle fallback); see the error above');
   if (!code) die('usage: game eval "<java>"');
   (await import('./lock.mjs')).lock(ROOT); // held until the result is back: a parallel build would delete this eval before it runs
+  const { imports, code: evalCode } = splitImports(code); code = evalCode;
   const name = 'E' + Date.now().toString(36);
   const dir = path.join(ROOT, 'src/client/java/dev/moddeus/eval'); // client set sees both client and common classes
   const outFile = path.join(ROOT, 'run/moddeus/eval', name + '.out');
@@ -97,6 +116,7 @@ async function evalJava(code) {
   const src = `package dev.moddeus.eval;
 
 ${EVAL_IMPORTS.map(i => 'import ' + i + ';').join('\n')}
+${imports}
 
 /** Generated by \`mc game eval\`; deleted after it runs. */
 public final class ${name} {
@@ -173,7 +193,41 @@ export async function run(args) {
       console.log(lines.slice(-n).join('\n'));
       break;
     }
-    case 'eval': case 'run': await evalJava(rest.filter(a => a !== '--gradle').join(' ')); break;
+    case 'eval': case 'run': { const f = flag('--file'); await evalJava(typeof f === 'string' ? fs.readFileSync(f, 'utf8') : rest.filter(a => a !== '--gradle').join(' ')); break; } // --file <path>: snippet from a file (no shell quoting)
+    case 'stage': { // private test stage: see live/Stage.java and skill mc-content TESTING.md
+      const [id, act = 'open', n] = rest;
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const java = c => runJava(c, true).then(o => { if (o === false) die('game not running'); return o.trim(); });
+      if (!id || id === 'list') { console.log(await java('print(Stage.list());')); break; }
+      if (!['open', 'report', 'clear', 'wait'].includes(act)) die('usage: game stage <id> [report|clear|wait <ticks>|list]');
+      const q = JSON.stringify(id);
+      let ready = '';
+      for (let i = 0; i < 80 && !ready.startsWith('ready'); i++) { // first open generates the chunks (async, a few s)
+        ready = await java(`Stage s = Stage.of(${q}); print(s.ready() ? "ready " + s.id + " slot " + s.slot + ", centre " + s.origin.getX() + " " + s.origin.getY() + " " + s.origin.getZ() + ", tag " + s.tag : "loading");`);
+        if (!ready.startsWith('ready')) await sleep(400);
+      }
+      if (!ready.startsWith('ready')) { await java(`print(Stage.of(${q}).clear());`); die('stage ' + id + ' still loading after 30 s (forceload released; try again)'); }
+      if (act === 'clear') console.log(await java(`print(Stage.of(${q}).clear());`));
+      else if (act === 'report') console.log(await java(`print(Stage.of(${q}).report());`));
+      else if (act === 'wait') { await sleep(Number(n || 20) * 50); console.log(await java(`print(Stage.of(${q}).report());`)); }
+      else console.log(ready + '\nJava (game run): Stage s = Stage.of(' + q + '); s.spawn("zombie"); s.hold("<item>").use(); print(s.report());');
+      break;
+    }
+    case 'studio': { // offscreen model renders: client/game/Studio.java
+      const o = {};
+      for (const k of ['angles', 'anim', 't', 'pose', 'size', 'nbt', 'pitch', 'view']) { const v = flag('--' + k); if (v !== undefined && v !== true) o[k] = /^(angles|t|size|pitch)$/.test(k) ? Number(v) : v; }
+      const [kind, id] = rest;
+      if (!/^(entity|mob|item|armor|block)$/.test(kind || '') || !id) die('usage: game studio entity|item|armor|block <id> [--angles 4] [--anim walk] [--pose stand,crouch,swim] [--size 384]');
+      Object.assign(o, { kind: kind === 'mob' ? 'entity' : kind, id });
+      const name = (await runJava(`print(dev.moddeus.client.game.Studio.queue(${JSON.stringify(JSON.stringify(o))}));`, true)).trim();
+      const done = path.join(ROOT, 'run/moddeus/shots/studio', name + '.json');
+      for (let i = 0; i < 300 && !fs.existsSync(done); i++) await new Promise(r => setTimeout(r, 100));
+      if (!fs.existsSync(done)) die('studio: no result after 30 s (game log: "studio")');
+      const r = JSON.parse(fs.readFileSync(done, 'utf8'));
+      if (r.error) die('studio: ' + r.error);
+      console.log(r.sheet + '\n  sheet = ' + r.views.join(' | ') + ' (' + r.cols + ' per row; Read the PNG to look)');
+      break;
+    }
     case 'quick': { // several actions in one call: quick launch 3 + safe_landing
       const groups = rest.join(' ').split(/\s*\+\s*/).map(g => g.split(/\s+/).filter(Boolean));
       for (const g of groups.length ? groups : [[]]) {
